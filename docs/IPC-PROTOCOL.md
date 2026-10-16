@@ -48,7 +48,11 @@ JSON służy **tylko** do sterowania i metadanych, nie do transportu obrazu lub 
 
 Docelowe metadane będą zawierać format, stride, numer sekwencji, znacznik czasu sensora (jednostka i źródło) i czas hosta. Równoczesne RGB/IR/Depth wymaga dopiero rzeczywistego brokera USB.
 
-## Uruchomienie bez Kinecta
+## Kompilacja i uruchomienie bez Kinecta
+
+Wymagany jest kompilator obsługujący **C++23** oraz systemowy pakiet nagłówkowy **nlohmann/json** (nie kopiujemy kodu zależności do repozytorium). Przykładowa instalacja na Arch Linux: `sudo pacman -S --needed gcc nlohmann-json`; na Ubuntu: `sudo apt-get install g++ nlohmann-json3-dev`. GitHub Actions instaluje zależność przed kompilacją.
+
+C++ korzysta z `nlohmann/json` do parsowania i tworzenia komunikatów. Callback waliduje duplikaty kluczy w każdym obiekcie i ogranicza zagnieżdżenie do 32 poziomów. Limit rozmiaru i sprawdzanie schematu nie zależą od konfiguracji parsera.
 
 ```bash
 bash tools/build_broker.sh
