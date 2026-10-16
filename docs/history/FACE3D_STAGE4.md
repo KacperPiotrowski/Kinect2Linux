@@ -1,3 +1,5 @@
+> **Historyczna iteracja Face3D.** Poniższe instrukcje patchowania mogą być nieaktualne. Obecny punkt wejścia opisuje [EXPERIMENTS.md](../EXPERIMENTS.md).
+
 # Kinect2 Face3D Stage 4 — 5 punktów twarzy + Depth (eksperyment)
 
 Wykorzystuje **lokalny** model `shape_predictor_5_face_landmarks.dat` z dlib

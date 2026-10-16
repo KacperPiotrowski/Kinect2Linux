@@ -9,6 +9,8 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import math
+import time
 import os
 from pathlib import Path
 import re
@@ -19,6 +21,9 @@ SERVICE = 'kinect2-rgb-webcam.service'
 RGB_DEV = Path(os.environ.get('KINECT_RGB_DEVICE', '/dev/video11'))
 IR_DEV = Path(os.environ.get('KINECT_IR_DEVICE', '/dev/video10'))
 LOCK = Path(os.environ.get('XDG_RUNTIME_DIR', str(Path(__file__).resolve().parents[1]))) / 'kinect2-sensor.lock'
+# Bridge writes this in the user's runtime directory, never inside the source tree.
+STATE_PATH = Path(os.environ.get('KINECT_RGB_STATE',
+                      f"{os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')}/kinect2-rgb-state.json"))
 
 
 def command(*args: str, timeout: float = 3.0) -> str | None:
@@ -116,6 +121,58 @@ def parse_activity(raw: str | None, main_pid: int | None) -> dict:
             except (ValueError, OverflowError, OSError):
                 result['last_event_at'] = None
     return result
+
+
+def read_live_rgb(path: Path, main_pid: int | None, now_ns: int | None = None) -> dict | None:
+    """Accept a bridge snapshot only when fresh AND owned by the running PID.
+
+    The monotonic timestamp avoids clock changes and is reset on reboot.
+    Invalid, stale, truncated and foreign-owner files never become live state.
+    """
+    if not main_pid:
+        return None
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or not 0 < st.st_size <= 4096:
+                return None
+            raw = os.read(fd, 4097)
+        finally:
+            os.close(fd)
+        snapshot = json.loads(raw)
+    except (OSError, ValueError, TypeError, UnicodeError):
+        return None
+    if not isinstance(snapshot, dict) or type(snapshot.get('pid')) is not int or snapshot['pid'] != main_pid:
+        return None
+    if snapshot.get('schema_version') != 1 or type(snapshot.get('sensor_streaming')) is not bool:
+        return None
+    readers, mono = snapshot.get('streaming_clients'), snapshot.get('monotonic_ns')
+    if type(readers) is not int or not 0 <= readers <= 100000 or type(mono) is not int:
+        return None
+    age_ns = (time.monotonic_ns() if now_ns is None else now_ns) - mono
+    if not 0 <= age_ns <= 3_000_000_000:
+        return None
+    try:
+        unix_ms = int(snapshot['timestamp_unix_ms'])
+        stamp = dt.datetime.fromtimestamp(unix_ms / 1000, tz=dt.timezone.utc).isoformat()
+    except (KeyError, ValueError, OverflowError, OSError, TypeError):
+        return None
+    stats = {}
+    for key in ('frames', 'seq_gaps', 'output_drops'):
+        value = snapshot.get(key)
+        stats[key] = value if type(value) is int and value >= 0 else None
+    return {
+        'sensor_streaming': snapshot['sensor_streaming'],
+        'streaming_clients': readers,
+        'last_event': None,
+        'last_event_at': None,
+        'state_source': 'bridge_runtime',
+        'state_fresh': True,
+        'state_age_ms': round(age_ns / 1_000_000),
+        'state_updated_at': stamp,
+        'capture_stats': stats,
+    }
 
 
 def parse_wpctl(raw: str | None) -> dict:
@@ -240,11 +297,21 @@ def camera_openers(path: Path, bridge_pid: int | None) -> list[dict]:
 def get_status() -> dict:
     props = service_props(command('systemctl', '--user', 'show', SERVICE,
                                   '-p', 'ActiveState', '-p', 'MainPID'))
-    journal = None
-    if props['state'] == 'active' and props['pid']:
-        journal = command('journalctl', '--user', '-b', '-u', SERVICE, '-n', '1000',
-                          '-o', 'json', '--no-pager', timeout=4.0)
-    activity = parse_activity(journal, props['pid'])
+    live = (read_live_rgb(STATE_PATH, props['pid'])
+            if props['state'] == 'active' else None)
+    if live is not None:
+        activity = live
+    else:
+        journal = None
+        if props['state'] == 'active' and props['pid']:
+            journal = command('journalctl', '--user', '-b', '-u', SERVICE, '-n', '1000',
+                              '-o', 'json', '--no-pager', timeout=4.0)
+        activity = parse_activity(journal, props['pid'])
+        activity.update({
+            'state_source': 'journal_last_known' if activity['last_event'] else 'unknown',
+            'state_fresh': False, 'state_age_ms': None, 'state_updated_at': None,
+            'capture_stats': None,
+        })
     audio = parse_wpctl(command('wpctl', 'inspect', '@DEFAULT_AUDIO_SOURCE@'))
     sensors = physical_sensors()
     return {
@@ -273,7 +340,10 @@ def pretty(v: dict) -> str:
     lines = [
         f"Kinect USB: {'podłączony' if device['connected'] else 'nie wykryto (USB sysfs)'}",
         f"RGB: {rgb['virtual_device']} | usługa={rgb['service']} | PID={label(rgb['bridge_pid'])}",
-        f"RGB aktywny: {label(rgb['sensor_streaming'])} | odbiorcy strumienia: {label(rgb['streaming_clients'])}",
+        f"RGB aktywny{' (ostatni znany)' if not rgb['state_fresh'] else ''}: "
+        f"{label(rgb['sensor_streaming'])} | odbiorcy strumienia: {label(rgb['streaming_clients'])}",
+        f"Stan RGB: {'świeży' if rgb['state_fresh'] else 'ostatni znany / niepotwierdzony'} "
+        f"| źródło={rgb['state_source']} | wiek={label(rgb['state_age_ms'])} ms",
         f"IR: {v['ir']['virtual_device']} (urządzenie wirtualne: {label(v['ir']['present'])})",
         f"USB zajęte przez proces Kinect2-Linux (flock): {label(lock['held'])}",
         f"Właściciel blokady: {label(lock['owner_name'])} PID={label(lock['owner_pid'])}",

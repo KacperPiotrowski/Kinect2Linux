@@ -1,3 +1,5 @@
+> **Archiwum historyczne.** Instrukcje instalacji/patchowania w tym pliku są przestarzałe i nie należy ich stosować do aktualnej wersji projektu. Zobacz główne `README.md`.
+
 # Kinect2-Linux — kolorowa kamera systemowa (RGB)
 
 **Wersja eksperymentalna, do testu na Twoim Arch Linux / KDE Wayland.**

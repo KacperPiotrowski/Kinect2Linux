@@ -9,11 +9,13 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/file.h>
+#include <sys/stat.h>
 #include <poll.h>
 #include <chrono>
 #include <memory>
 #include <cstdlib>
 #include <cerrno>
+#include <cstdio>
 #include <csignal>
 #include <cstdint>
 #include <cstring>
@@ -157,6 +159,90 @@ struct KinectSession {
   uint32_t prior_seq = 0;
   bool have_seq = false;
   unsigned long long sent = 0, dropped = 0, gaps = 0;
+};
+
+// Lightweight snapshot for read-only local Status API. No device interaction.
+// Rename is atomic: readers never observe partially written JSON.
+// Disabled if the launcher did not provide a runtime path.
+std::string json_quote(const std::string& input)
+{
+  std::string out = "\"";
+  for (unsigned char c : input) {
+    if (c == '\\' || c == '"') { out += '\\'; out += static_cast<char>(c); }
+    else if (c < 0x20) out += '?';
+    else out += static_cast<char>(c);
+  }
+  return out + "\"";
+}
+
+bool atomic_state_write(const std::string& path, const std::string& payload)
+{
+  if (path.empty()) return true;
+  const std::string tmp = path + ".tmp." + std::to_string(getpid());
+  int fd = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
+  if (fd < 0) return false;
+  bool ok = fchmod(fd, 0600) == 0;
+  size_t done = 0;
+  while (ok && done < payload.size()) {
+    const ssize_t n = write(fd, payload.data() + done, payload.size() - done);
+    if (n < 0 && errno == EINTR) continue;
+    if (n <= 0) { ok = false; break; }
+    done += static_cast<size_t>(n);
+  }
+  if (close(fd) != 0) ok = false;
+  if (ok) ok = rename(tmp.c_str(), path.c_str()) == 0;
+  if (!ok) unlink(tmp.c_str());
+  return ok;
+}
+
+struct StateReporter {
+  explicit StateReporter(const char* path, const std::string& camera)
+    : path_(path ? path : ""), camera_(camera) {}
+
+  void publish(const KinectSession& session, unsigned readers)
+  {
+    if (path_.empty()) return;
+    const bool active = session.device && session.streaming;
+    const auto now = Clock::now();
+    if (published_ && active == previous_active_ && readers == previous_readers_ &&
+        now - previous_time_ < std::chrono::seconds(1)) return;
+
+    const auto unix_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    const auto mono_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        now.time_since_epoch()).count();
+    const std::string json = "{\"schema_version\":1,\"pid\":" + std::to_string(getpid()) +
+      ",\"camera\":" + json_quote(camera_) +
+      ",\"timestamp_unix_ms\":" + std::to_string(unix_ms) +
+      ",\"monotonic_ns\":" + std::to_string(mono_ns) +
+      ",\"sensor_streaming\":" + (active ? "true" : "false") +
+      ",\"streaming_clients\":" + std::to_string(readers) +
+      ",\"frames\":" + std::to_string(session.sent) +
+      ",\"seq_gaps\":" + std::to_string(session.gaps) +
+      ",\"output_drops\":" + std::to_string(session.dropped) + "}\n";
+    if (!atomic_state_write(path_, json)) {
+      if (!warned_) std::cerr << "Warning: cannot publish RGB runtime status: " << path_ << "\n";
+      warned_ = true;
+      return;
+    }
+    warned_ = false;
+    published_ = true;
+    previous_time_ = now;
+    previous_active_ = active;
+    previous_readers_ = readers;
+  }
+
+  void cleanup() const
+  {
+    // Owned by this service in the user's XDG_RUNTIME_DIR; never a camera node.
+    if (published_ && !path_.empty()) unlink(path_.c_str());
+  }
+
+private:
+  std::string path_, camera_;
+  bool published_ = false, previous_active_ = false, warned_ = false;
+  unsigned previous_readers_ = 0;
+  Clock::time_point previous_time_{};
 };
 
 void stop_kinect(KinectSession& s)
@@ -336,6 +422,8 @@ int main(int argc, char** argv)
   auto next_retry = Clock::now();
   std::cerr << "Kinect RGB webcam ready on " << path
             << (always_on ? " (always-on compatibility)\n" : " (on-demand, Kinect OFF)\n");
+  StateReporter reporter(std::getenv("KINECT_RGB_STATE"), path);
+  reporter.publish(session, readers);
 
   bool good = true;
   while (running) {
@@ -352,6 +440,7 @@ int main(int argc, char** argv)
         next_retry = Clock::now() + RETRY_PAUSE;
       }
     }
+    reporter.publish(session, readers);
     if (session.device) {
       if (!send_color_frame(session, fd, yuyv)) { good = false; break; }
     } else {
@@ -370,6 +459,7 @@ int main(int argc, char** argv)
     }
   }
   stop_kinect(session);
+  reporter.cleanup();
   if (running == 0 && !always_on) (void)push_frame(fd, blank);
   close(fd);
   return good ? 0 : 1;

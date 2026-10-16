@@ -1,3 +1,5 @@
+> **Historyczna iteracja Face3D.** Poniższe instrukcje patchowania mogą być nieaktualne. Obecny punkt wejścia opisuje [EXPERIMENTS.md](../EXPERIMENTS.md).
+
 # Kinect2-Linux — Face3D Stage 1
 
 **Experimental preview. Not biometric authentication.**

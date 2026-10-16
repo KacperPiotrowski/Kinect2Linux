@@ -1,0 +1,3 @@
+# Only hardware-free Python unit tests; face3d/IR GUI has extra optional dependencies.
+numpy>=1.26,<3
+opencv-python-headless>=4.10,<5

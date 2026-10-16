@@ -1,3 +1,5 @@
+> **Archiwum historyczne.** Instrukcje instalacji/patchowania w tym pliku są przestarzałe i nie należy ich stosować do aktualnej wersji projektu. Zobacz główne `README.md`.
+
 # Kinect2-Linux — integracja Status API
 
 Rozszerza istniejacy `./kinect2` o trzy polecenia tylko do odczytu:

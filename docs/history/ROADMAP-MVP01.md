@@ -1,3 +1,5 @@
+> **Archiwum historyczne.** Instrukcje instalacji/patchowania w tym pliku są przestarzałe i nie należy ich stosować do aktualnej wersji projektu. Zobacz główne `README.md`.
+
 # Roadmap i warunki odbioru
 
 ## MVP 0.1 — publikujemy jako eksperyment
