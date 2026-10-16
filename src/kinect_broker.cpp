@@ -7,7 +7,8 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
-#include <limits>
+#include <nlohmann/json.hpp>
+#include <vector>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -25,201 +26,45 @@ volatile std::sig_atomic_t running = 1;
 
 void stop_handler(int) { running = 0; }
 
-// Validate all UTF-8 (including ignored JSON fields) before parsing.
-bool valid_utf8(std::string_view s) {
-  for (size_t i = 0; i < s.size();) {
-    const unsigned char c = static_cast<unsigned char>(s[i]);
-    if (c < 0x80) { ++i; continue; }
-    unsigned int code = 0; size_t n = 0;
-    if (c >= 0xC2 && c <= 0xDF) { code = c & 31; n = 2; }
-    else if (c >= 0xE0 && c <= 0xEF) { code = c & 15; n = 3; }
-    else if (c >= 0xF0 && c <= 0xF4) { code = c & 7; n = 4; }
-    else return false;
-    if (i + n > s.size()) return false;
-    for (size_t j = 1; j < n; ++j) {
-      const auto b = static_cast<unsigned char>(s[i + j]);
-      if ((b & 0xC0) != 0x80) return false;
-      code = (code << 6) | (b & 63);
+// The JSON library validates UTF-8, JSON grammar and escaped Unicode.
+// A callback also rejects duplicate keys at every object nesting level and
+// enforces a depth limit; neither is guaranteed by default json::parse().
+using json = nlohmann::json;
+constexpr int MAX_JSON_DEPTH = 32;
+constexpr std::uint64_t MAX_REQUEST_ID = 9999999999999999ULL;
+
+json parse_control_json(const std::string& payload) {
+  int nesting = 0;
+  std::vector<std::unordered_set<std::string>> object_keys;
+  auto validate = [&](int, json::parse_event_t event, json& parsed) -> bool {
+    switch (event) {
+      case json::parse_event_t::object_start:
+        if (++nesting > MAX_JSON_DEPTH)
+          throw std::runtime_error("JSON nesting too deep");
+        object_keys.emplace_back();
+        break;
+      case json::parse_event_t::array_start:
+        if (++nesting > MAX_JSON_DEPTH)
+          throw std::runtime_error("JSON nesting too deep");
+        break;
+      case json::parse_event_t::key:
+        if (object_keys.empty() ||
+            !object_keys.back().insert(parsed.get<std::string>()).second)
+          throw std::runtime_error("duplicate JSON object key");
+        break;
+      case json::parse_event_t::object_end:
+        object_keys.pop_back();
+        --nesting;
+        break;
+      case json::parse_event_t::array_end:
+        --nesting;
+        break;
+      default: break;
     }
-    if ((n == 2 && code < 0x80) || (n == 3 && code < 0x800) ||
-        (n == 4 && code < 0x10000) || (code >= 0xD800 && code <= 0xDFFF) ||
-        code > 0x10FFFF) return false;
-    i += n;
-  }
-  return true;
+    return true; // Keep every field for schema validation.
+  };
+  return json::parse(payload, validate);
 }
-
-enum class Kind { Object, Array, String, Number, Boolean, Null };
-struct Value { Kind kind; std::string text; };
-struct Fields { Value version{Kind::Null, ""}; Value request_id{Kind::Null, ""};
-                Value op{Kind::Null, ""}; Value params{Kind::Null, ""}; };
-
-class JsonParser {
- public:
-  explicit JsonParser(std::string_view input) : input_(input) {
-    if (!valid_utf8(input)) throw std::runtime_error("invalid UTF-8");
-  }
-  Fields parse() {
-    skip_ws();
-    if (peek() != '{') throw std::runtime_error("expected JSON object");
-    parse_object(true);
-    skip_ws();
-    if (i_ != input_.size()) throw std::runtime_error("trailing JSON data");
-    return fields_;
-  }
- private:
-  std::string_view input_;
-  size_t i_ = 0;
-  int depth_ = 0;
-  Fields fields_;
-  char peek() const { return i_ < input_.size() ? input_[i_] : '\0'; }
-  void skip_ws() {
-    while (peek() == ' ' || peek() == '\n' || peek() == '\r' || peek() == '\t') ++i_;
-  }
-  void expect(char c) {
-    if (peek() != c) throw std::runtime_error("invalid JSON punctuation");
-    ++i_;
-  }
-  void literal(std::string_view s) {
-    if (input_.substr(i_, s.size()) != s) throw std::runtime_error("invalid JSON literal");
-    i_ += s.size();
-  }
-  static bool digit(char c) { return c >= '0' && c <= '9'; }
-  static void append_codepoint(std::string& out, uint32_t cp) {
-    if (cp < 0x80) out.push_back(static_cast<char>(cp));
-    else if (cp < 0x800) {
-      out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
-      out.push_back(static_cast<char>(0x80 | (cp & 63)));
-    } else if (cp < 0x10000) {
-      out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
-      out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 63)));
-      out.push_back(static_cast<char>(0x80 | (cp & 63)));
-    } else {
-      out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
-      out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 63)));
-      out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 63)));
-      out.push_back(static_cast<char>(0x80 | (cp & 63)));
-    }
-  }
-  uint32_t hex4() {
-    uint32_t cp = 0;
-    for (int j = 0; j < 4; ++j) {
-      char c = peek();
-      if (!c) throw std::runtime_error("truncated unicode escape");
-      ++i_;
-      cp <<= 4;
-      if (c >= '0' && c <= '9') cp |= c - '0';
-      else if (c >= 'a' && c <= 'f') cp |= c - 'a' + 10;
-      else if (c >= 'A' && c <= 'F') cp |= c - 'A' + 10;
-      else throw std::runtime_error("invalid unicode escape");
-    }
-    return cp;
-  }
-  std::string parse_string() {
-    expect('"');
-    std::string out;
-    while (true) {
-      const char c = peek();
-      if (!c) throw std::runtime_error("unterminated JSON string");
-      ++i_;
-      if (c == '"') return out;
-      if (static_cast<unsigned char>(c) < 0x20) throw std::runtime_error("control character in JSON string");
-      if (c != '\\') { out.push_back(c); continue; }
-      const char escaped = peek();
-      if (!escaped) throw std::runtime_error("truncated escape");
-      ++i_;
-      switch (escaped) {
-        case '"': case '\\': case '/': out.push_back(escaped); break;
-        case 'b': out.push_back('\b'); break;
-        case 'f': out.push_back('\f'); break;
-        case 'n': out.push_back('\n'); break;
-        case 'r': out.push_back('\r'); break;
-        case 't': out.push_back('\t'); break;
-        case 'u': {
-          uint32_t cp = hex4();
-          if (cp >= 0xD800 && cp <= 0xDBFF) {
-            expect('\\'); expect('u');
-            const uint32_t low = hex4();
-            if (low < 0xDC00 || low > 0xDFFF) throw std::runtime_error("invalid unicode pair");
-            cp = 0x10000 + ((cp - 0xD800) << 10) + (low - 0xDC00);
-          } else if (cp >= 0xDC00 && cp <= 0xDFFF) {
-            throw std::runtime_error("unpaired surrogate");
-          }
-          append_codepoint(out, cp);
-          break;
-        }
-        default: throw std::runtime_error("invalid JSON string escape");
-      }
-    }
-  }
-  Value parse_number() {
-    const size_t begin = i_;
-    if (peek() == '-') ++i_;
-    if (peek() == '0') ++i_;
-    else {
-      if (peek() < '1' || peek() > '9') throw std::runtime_error("invalid JSON number");
-      do { ++i_; } while (digit(peek()));
-    }
-    if (peek() == '.') {
-      ++i_; if (!digit(peek())) throw std::runtime_error("invalid JSON fraction");
-      do { ++i_; } while (digit(peek()));
-    }
-    if (peek() == 'e' || peek() == 'E') {
-      ++i_; if (peek() == '+' || peek() == '-') ++i_;
-      if (!digit(peek())) throw std::runtime_error("invalid JSON exponent");
-      do { ++i_; } while (digit(peek()));
-    }
-    return {Kind::Number, std::string(input_.substr(begin, i_ - begin))};
-  }
-  void parse_object(bool root) {
-    if (++depth_ > MAX_JSON_DEPTH) throw std::runtime_error("JSON nesting too deep");
-    expect('{'); skip_ws();
-    std::unordered_set<std::string> keys;
-    if (peek() != '}') {
-      while (true) {
-        if (peek() != '"') throw std::runtime_error("expected JSON object key");
-        std::string key = parse_string();
-        if (!keys.insert(key).second) throw std::runtime_error("duplicate JSON key");
-        skip_ws(); expect(':'); skip_ws();
-        Value value = parse_value();
-        if (root) {
-          if (key == "protocol_version") fields_.version = std::move(value);
-          else if (key == "request_id") fields_.request_id = std::move(value);
-          else if (key == "op") fields_.op = std::move(value);
-          else if (key == "params") fields_.params = std::move(value);
-        }
-        skip_ws(); if (peek() != ',') break;
-        ++i_; skip_ws();
-      }
-    }
-    expect('}'); --depth_;
-  }
-  void parse_array() {
-    if (++depth_ > MAX_JSON_DEPTH) throw std::runtime_error("JSON nesting too deep");
-    expect('['); skip_ws();
-    if (peek() != ']') {
-      while (true) {
-        parse_value(); skip_ws();
-        if (peek() != ',') break;
-        ++i_; skip_ws();
-      }
-    }
-    expect(']'); --depth_;
-  }
-  Value parse_value() {
-    skip_ws();
-    switch (peek()) {
-      case '{': parse_object(false); return {Kind::Object, ""};
-      case '[': parse_array(); return {Kind::Array, ""};
-      case '"': return {Kind::String, parse_string()};
-      case 't': literal("true"); return {Kind::Boolean, "true"};
-      case 'f': literal("false"); return {Kind::Boolean, "false"};
-      case 'n': literal("null"); return {Kind::Null, ""};
-      default: if (peek() == '-' || digit(peek())) return parse_number();
-    }
-    throw std::runtime_error("invalid JSON value");
-  }
-};
 
 bool read_exact(int fd, void* dst, size_t size) {
   auto* p = static_cast<char*>(dst);
@@ -261,27 +106,40 @@ void handle_client(int fd) {
   if (length == 0 || length > MAX_CONTROL_BYTES) return;
   std::string data(length, '\0');
   if (!read_exact(fd, data.data(), length)) return;
-  Fields fields;
-  try { fields = JsonParser(data).parse(); }
+  json request;
+  try { request = parse_control_json(data); }
   catch (const std::exception&) { return; }
-  if (fields.version.kind != Kind::Number || fields.version.text != "1") return;
-  if (fields.request_id.kind != Kind::Number || fields.request_id.text.empty() ||
-      fields.request_id.text[0] == '-' ||
-      fields.request_id.text.find_first_not_of("0123456789") != std::string::npos ||
-      fields.request_id.text.size() > 16) return;
-  if (fields.params.kind != Kind::Object) return;
-  if (fields.op.kind != Kind::String) return;
-  const std::string prefix = "{\"protocol_version\":1,\"request_id\":" + fields.request_id.text;
-  if (fields.op.text == "ping") {
-    send_json(fd, prefix + ",\"ok\":true,\"result\":{\"pong\":true}}");
-  } else if (fields.op.text == "get_status") {
-    // Do not report a live hardware state: this broker has no USB backend.
-    send_json(fd, prefix + ",\"ok\":true,\"result\":{\"state\":\"unavailable\","
-             "\"sensor_open\":false,\"reason\":\"sensor_backend_not_implemented\"}}");
+
+  if (!request.is_object() || !request.contains("protocol_version") ||
+      !request["protocol_version"].is_number_unsigned() ||
+      request["protocol_version"].get<std::uint64_t>() != 1) return;
+
+  if (!request.contains("request_id") ||
+      !request["request_id"].is_number_unsigned()) return;
+  const auto request_id = request["request_id"].get<std::uint64_t>();
+  if (request_id > MAX_REQUEST_ID) return;
+
+  if (!request.contains("params") || !request["params"].is_object() ||
+      !request.contains("op") || !request["op"].is_string()) return;
+
+  json response = {{"protocol_version", 1},
+                   {"request_id", request_id}};
+  const std::string op = request["op"].get<std::string>();
+  if (op == "ping") {
+    response["ok"] = true;
+    response["result"] = {{"pong", true}};
+  } else if (op == "get_status") {
+    // No USB access is implemented in this control-only prototype.
+    response["ok"] = true;
+    response["result"] = {{"state", "unavailable"},
+                          {"sensor_open", false},
+                          {"reason", "sensor_backend_not_implemented"}};
   } else {
-    send_json(fd, prefix + ",\"ok\":false,\"error\":{\"code\":\"unknown_operation\","
-             "\"message\":\"Unsupported control operation\"}}");
+    response["ok"] = false;
+    response["error"] = {{"code", "unknown_operation"},
+                         {"message", "Unsupported control operation"}};
   }
+  send_json(fd, response.dump());
 }
 
 bool valid_private_parent(const std::string& path) {
