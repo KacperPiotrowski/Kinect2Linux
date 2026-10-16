@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+# Offline tests only need to read the repository.
+permissions:
+  contents: read
+
 jobs:
   python-and-shell:
     runs-on: ubuntu-latest
