@@ -220,7 +220,7 @@ int main(int argc, char** argv) {
   }
   kinect2::SysfsSensorBackend sensor_backend;
   std::cout << "Kinect2 broker control socket ready: " << path
-            << " (no sensor backend)\n" << std::flush;
+            << " (read-only sysfs discovery; USB backend not implemented)\n" << std::flush;
   while (running) {
     const int client = accept4(server, nullptr, nullptr, SOCK_CLOEXEC);
     if (client < 0) {
