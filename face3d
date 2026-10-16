@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Additive test tool for Kinect2-Linux. Does not modify existing launchers/PAM.
+set -euo pipefail
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$(readlink -f -- "${LIBFREENECT2_DIR:-$ROOT/../libfreenect2-omp}")"
+SO="$LIB_DIR/build-omp/lib/libfreenect2.so"
+SOURCE="$ROOT/src/kinect_face3d_stream.cpp"
+APP="$ROOT/bin/kinect_face3d_stream"
+LOCK="${XDG_RUNTIME_DIR:-$ROOT}/kinect2-sensor.lock"
+
+build() {
+  if [[ ! -f "$SO" ]]; then
+    echo "Brak biblioteki OpenMP: $SO" >&2; exit 1
+  fi
+  mkdir -p "$ROOT/bin"
+  g++ -std=c++11 -O2 \
+    -I"$LIB_DIR/include" -I"$LIB_DIR/build-omp" \
+    "$SOURCE" -L"$LIB_DIR/build-omp/lib" \
+    -Wl,-rpath,"$LIB_DIR/build-omp/lib" -lfreenect2 -o "$APP"
+  echo "[OK] Zbudowano $APP"
+}
+
+if [[ "${1:-}" == "build" ]]; then build; exit 0; fi
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  echo 'Użycie: ./face3d [--detector auto|dlib|haar]'
+  echo '       ./face3d build'
+  echo 'Uwaga: zatrzymaj ./kinect2 run przed uruchomieniem.'
+  exit 0
+fi
+if [[ ! -x "$APP" || "$SOURCE" -nt "$APP" ]]; then build; fi
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
+export OMP_DYNAMIC=FALSE
+# Prefer system PyQt6 on Arch; a user-site pip wheel lacks platform plugins.
+export PYTHONNOUSERSITE=1
+if ! command -v flock >/dev/null; then echo 'Brak flock (util-linux)' >&2; exit 1; fi
+# The lock is identical to the existing kinect2 run/depth lock.
+status=0
+flock -n -E 75 -F "$LOCK" python3 "$ROOT/face/live3d.py" --producer "$APP" "$@" || status=$?
+if [[ "$status" -eq 75 ]]; then
+  echo 'Kinect jest zajety: najpierw zatrzymaj ./kinect2 run lub ./kinect2 depth.' >&2
+fi
+exit "$status"

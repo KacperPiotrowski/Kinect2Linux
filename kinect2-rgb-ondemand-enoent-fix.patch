@@ -1,0 +1,12 @@
+--- a/src/kinect_rgb_bridge.cpp
++++ b/src/kinect_rgb_bridge.cpp
+@@ -131,7 +131,8 @@
+   for (;;) {
+     v4l2_event ev{};
+     if (ioctl(fd, VIDIOC_DQEVENT, &ev) == -1) {
+-      if (errno == EAGAIN) return true;
++      // V4L2 may return ENOENT (rather than EAGAIN) for an empty event queue.
++      if (errno == EAGAIN || errno == ENOENT) return true;
+       if (errno == EINTR && running) continue;
+       std::cerr << "V4L2 client event error: " << strerror(errno) << "\n";
+       return false;

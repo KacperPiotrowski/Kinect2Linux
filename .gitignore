@@ -1,0 +1,12 @@
+/bin/*
+!/bin/.gitkeep
+__pycache__/
+*.pyc
+research-data/
+*.csv
+*.pgm
+*.ppm
+*.png
+*.f32
+*.dat
+*.log

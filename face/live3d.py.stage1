@@ -1,0 +1,447 @@
+#!/usr/bin/env python3
+"""Kinect2-Linux Face3D stage 1: synchronized IR/Depth + asynchronous face DETECTION.
+
+ONE process owns the Kinect (C++ child); stdout is not used for the sensor protocol.
+No identity recognition, liveness decision, PAM integration, or biometric recording.
+The optical axis of IR/Depth is shared, but this preview does not replace calibration.
+"""
+import argparse
+import math
+import os
+import struct
+import subprocess
+import sys
+import threading
+import time
+from dataclasses import dataclass
+
+import cv2
+import numpy as np
+
+W, H = 512, 424
+N = W * H
+PLANE_BYTES = N * 4
+HEADER = struct.Struct('<8sIIIIffff')
+MAGIC = b'K2F3D002'
+WINDOW = 'Kinect2-Linux | IR + Depth (preview only)'
+
+try:
+    import dlib
+except ImportError:
+    dlib = None
+
+
+class LatestPair:
+    """Single-slot buffer (new frames overwrite stale ones)."""
+    def __init__(self):
+        self.cond = threading.Condition()
+        self.serial = -1
+        self.gray = None
+        self.depth = None
+        self.seq = None
+        self.arrived_at = 0.0
+        self.intrinsics = None
+        self.ended = False
+        self.error = ''
+
+    def publish(self, gray, depth, seq, intrinsics=None):
+        with self.cond:
+            self.serial += 1
+            self.gray = gray
+            self.depth = depth
+            self.seq = seq
+            self.intrinsics = intrinsics
+            self.arrived_at = time.monotonic()
+            self.cond.notify_all()
+
+    def newest(self, last=-2, timeout=0.05):
+        with self.cond:
+            if self.serial == last and not self.ended:
+                self.cond.wait_for(lambda: self.serial != last or self.ended, timeout)
+            if self.gray is None or self.serial == last:
+                return None
+            return self.serial, self.gray, self.depth, self.seq, self.arrived_at, self.intrinsics
+
+    def finish(self, error=''):
+        with self.cond:
+            self.error = error
+            self.ended = True
+            self.cond.notify_all()
+
+
+def read_exact(file, number):
+    """Return exactly number bytes, or None on clean end-of-stream."""
+    chunks = bytearray()
+    while len(chunks) < number:
+        part = file.read(number - len(chunks))
+        if not part:
+            if chunks:
+                raise EOFError('Truncated Face3D frame received')
+            return None
+        chunks.extend(part)
+    return bytes(chunks)
+
+
+def normalize_ir(ir):
+    """Only the GUI/detector uses 8-bit; the IPC source has full float32 IR."""
+    good = ir[np.isfinite(ir) & (ir > 0.0)]
+    if good.size < 1000:
+        return np.zeros((H, W), dtype=np.uint8)
+    lo, hi = np.percentile(good, [2.0, 99.5])
+    if hi <= lo + 1:
+        hi = lo + 1
+    scaled = (np.nan_to_num(ir, nan=0.0, posinf=hi, neginf=0.0) - lo) / (hi - lo)
+    return (255 * np.sqrt(np.clip(scaled, 0.0, 1.0))).astype(np.uint8)
+
+
+def depth_visual(depth):
+    """False colors over a fixed physical interval: 450..3500 mm."""
+    valid = np.isfinite(depth) & (depth >= 450) & (depth <= 4500)
+    scaled = (np.clip(np.nan_to_num(depth, nan=450, posinf=4500, neginf=450),
+                      450, 3500) - 450) / 3050.0
+    shade = (255.0 * (1.0 - scaled)).astype(np.uint8)
+    colored = cv2.applyColorMap(shade, cv2.COLORMAP_TURBO)
+    colored[~valid] = (12, 12, 12)
+    return colored
+
+
+def face_depth(depth, box):
+    """Exploratory face-center ROI; not an identity or liveness metric."""
+    x1, y1, x2, y2 = (int(q) for q in box)
+    x1, x2 = sorted((max(0, x1), min(W, x2)))
+    y1, y2 = sorted((max(0, y1), min(H, y2)))
+    bw, bh = x2 - x1, y2 - y1
+    if bw < 12 or bh < 12:
+        return None
+    # Inner 40% avoids hair/background around detected bounding box.
+    xa = x1 + int(0.30 * bw)
+    xb = x1 + int(0.70 * bw)
+    ya = y1 + int(0.30 * bh)
+    yb = y1 + int(0.70 * bh)
+    roi = depth[ya:yb, xa:xb]
+    if roi.size == 0:
+        return None
+    good = roi[np.isfinite(roi) & (roi >= 450) & (roi <= 4500)]
+    valid_ratio = float(good.size) / roi.size
+    if good.size < 25:
+        return 0.0, valid_ratio, 0.0
+    median = float(np.median(good))
+    spread = float(np.percentile(good, 90) - np.percentile(good, 10))
+    return median, valid_ratio, spread
+
+
+def depth_patch(depth, box, rx, ry):
+    """Median depth in a small inner-face patch (millimetres) plus valid fraction."""
+    x1, y1, x2, y2 = (int(n) for n in box)
+    x1, x2 = max(0, min(W-1, x1)), max(1, min(W, x2))
+    y1, y2 = max(0, min(H-1, y1)), max(1, min(H, y2))
+    bw, bh = x2-x1, y2-y1
+    if bw < 50 or bh < 50:
+        return None
+    x = x1 + round(rx*bw)
+    y = y1 + round(ry*bh)
+    rad = max(3, round(min(bw,bh)*0.055))
+    region = depth[max(0,y-rad):min(H,y+rad+1),
+                   max(0,x-rad):min(W,x+rad+1)]
+    good = region[np.isfinite(region) & (region >= 500) & (region <= 4500)]
+    if region.size == 0 or good.size < 12 or good.size/region.size < 0.65:
+        return None
+    return float(np.median(good))
+
+
+def rotation_proxy(depth, box, intrinsics):
+    """Experimental 3D face tilt proxy from four depth patches. NOT calibrated pose.
+
+    Intrinsics make the X/Y baseline a real physical distance (mm). The sign
+    convention depends on image orientation. This estimate is not identity,
+    liveness, or high-trust registration evidence.
+    """
+    if intrinsics is None:
+        return None
+    fx, fy, cx, cy = intrinsics
+    if not (200 <= fx <= 1500 and 200 <= fy <= 1500):
+        return None
+    x1, y1, x2, y2 = (int(n) for n in box)
+    bw, bh = x2-x1, y2-y1
+    left = depth_patch(depth, box, .31, .53)
+    right = depth_patch(depth, box, .69, .53)
+    top = depth_patch(depth, box, .50, .34)
+    bottom = depth_patch(depth, box, .50, .68)
+    if any(v is None for v in (left,right,top,bottom)):
+        return None
+    depths = (left, right, top, bottom)
+    if max(depths)-min(depths) > 250:
+        return None
+    z = float(np.median(depths))
+    baseline_x_mm = .38 * bw * z / fx
+    baseline_y_mm = .34 * bh * z / fy
+    if baseline_x_mm < 15 or baseline_y_mm < 12:
+        return None
+    yaw = math.degrees(math.atan2(right-left, baseline_x_mm))
+    pitch = math.degrees(math.atan2(bottom-top, baseline_y_mm))
+    return (yaw, pitch)
+
+
+class MotionGuide:
+    """Exploratory motion coverage after the user explicitly sets FRONT."""
+    def __init__(self, threshold=14.0):
+        self.base = None
+        self.threshold = threshold
+        self.hits = set()
+        self.streaks = {x: 0 for x in ('YAW-', 'YAW+', 'PITCH-', 'PITCH+')}
+
+    def reset(self, pose):
+        self.base = pose
+        self.hits = {'FRONT'}
+        self.streaks = {x: 0 for x in self.streaks}
+
+    def consume(self, pose):
+        if pose is None or self.base is None:
+            return
+        dyaw, dpitch = pose[0]-self.base[0], pose[1]-self.base[1]
+        signals = {
+            'YAW-': dyaw < -self.threshold and abs(dpitch) < 28,
+            'YAW+': dyaw > self.threshold and abs(dpitch) < 28,
+            'PITCH-': dpitch < -self.threshold and abs(dyaw) < 28,
+            'PITCH+': dpitch > self.threshold and abs(dyaw) < 28,
+        }
+        for name, active in signals.items():
+            self.streaks[name] = self.streaks[name] + 1 if active else 0
+            if self.streaks[name] >= 3:
+                self.hits.add(name)
+
+
+@dataclass(frozen=True)
+class Result:
+    boxes: tuple = ()
+    analysis_ms: float = 0.0
+    arrived_at: float = 0.0
+    error: str = ''
+    seq: int = -1
+    pose: tuple = None
+
+
+class LatestDetection:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.value = Result()
+
+    def publish(self, item):
+        with self.lock:
+            self.value = item
+
+    def get(self):
+        with self.lock:
+            return self.value
+
+
+def capture_worker(inherited_fd, slot):
+    try:
+        with os.fdopen(inherited_fd, 'rb', buffering=2 * PLANE_BYTES) as stream:
+            while True:
+                data = read_exact(stream, HEADER.size)
+                if data is None:
+                    break
+                magic, seq, timestamp, width, height, fx, fy, cx, cy = HEADER.unpack(data)
+                if magic != MAGIC or width != W or height != H:
+                    raise ValueError('Incorrect Face3D stream header')
+                ir_blob = read_exact(stream, PLANE_BYTES)
+                dep_blob = read_exact(stream, PLANE_BYTES)
+                if ir_blob is None or dep_blob is None:
+                    raise EOFError('Incomplete IR/Depth pair')
+                ir = np.frombuffer(ir_blob, dtype='<f4').reshape((H, W))
+                dep = np.frombuffer(dep_blob, dtype='<f4').reshape((H, W))
+                slot.publish(normalize_ir(ir), dep, seq, (fx, fy, cx, cy))
+    except (OSError, ValueError, EOFError) as exc:
+        slot.finish(f'{type(exc).__name__}: {exc}')
+        return
+    except Exception as exc:
+        slot.finish(f'Unexpected reader error: {type(exc).__name__}: {exc}')
+        return
+    slot.finish()
+
+
+def detector_worker(slot, latest, stop, method, pose_enabled=False):
+    try:
+        if method in ('auto', 'dlib') and dlib is not None:
+            detector = dlib.get_frontal_face_detector()
+            kind = 'dlib'
+        elif method == 'dlib':
+            raise RuntimeError('dlib is not installed; try --detector haar')
+        else:
+            detector = cv2.CascadeClassifier(
+                cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+            if detector.empty():
+                raise RuntimeError('OpenCV Haar detector not found')
+            kind = 'haar'
+        last = -2
+        while not stop.is_set() and not slot.ended:
+            pair = slot.newest(last, timeout=0.25)
+            if pair is None:
+                continue
+            last, gray, dep, seq, arrived, intrinsics = pair
+            start = time.monotonic()
+            if kind == 'dlib':
+                faces = detector(gray, 0)
+                boxes = tuple((f.left(), f.top(), f.right(), f.bottom()) for f in faces)
+            else:
+                faces = detector.detectMultiScale(gray, scaleFactor=1.1,
+                                                   minNeighbors=5, minSize=(60, 60))
+                boxes = tuple((int(x), int(y), int(x+w), int(y+h)) for x, y, w, h in faces)
+            pose = rotation_proxy(dep, boxes[0], intrinsics) if pose_enabled and len(boxes) == 1 else None
+            latest.publish(Result(boxes=boxes,
+                                  analysis_ms=1000.0 * (time.monotonic()-start),
+                                  arrived_at=time.monotonic(), seq=seq, pose=pose))
+    except Exception as exc:
+        latest.publish(Result(error=f'{type(exc).__name__}: {exc}'))
+
+
+def run(producer, method, pose_enabled=False, threshold=12.0):
+    read_fd, write_fd = os.pipe()
+    try:
+        proc = subprocess.Popen([producer, str(write_fd)], pass_fds=(write_fd,))
+    finally:
+        os.close(write_fd)
+    slot = LatestPair()
+    latest = LatestDetection()
+    stop = threading.Event()
+    reader = threading.Thread(target=capture_worker, args=(read_fd, slot), daemon=True)
+    analyzer = threading.Thread(target=detector_worker,
+                                args=(slot, latest, stop, method, pose_enabled), daemon=True)
+    reader.start()
+    analyzer.start()
+    key = -1
+    frames_drawn = 0
+    fps_start = time.monotonic()
+    fps = 0.0
+    previous = -2
+    window_made = False
+    guide = MotionGuide(threshold=threshold)
+    last_pose_seq = None
+    try:
+        print('Face3D: sensor opens once. IR+Depth float32, detection on separate thread.')
+        print('Preview only: NOT identity recognition, NOT anti-spoofing, NOT PAM.')
+        print('Press Q or Esc in the window, or Ctrl+C in terminal, to stop.')
+        if pose_enabled:
+            print('POSE DEMO: look straight ahead and press C to set baseline; turn slowly.')
+            print('Approximate yaw/pitch: NOT precise angles or biometric enrollment.')
+        while True:
+            pair = slot.newest(previous, timeout=0.08)
+            if pair is None:
+                if slot.ended:
+                    if slot.error:
+                        raise RuntimeError(slot.error)
+                    if proc.poll() not in (0, None):
+                        raise RuntimeError('Sensor producer terminated unexpectedly')
+                    break
+                if proc.poll() is not None:
+                    raise RuntimeError(f'Sensor producer exited (code {proc.returncode})')
+                # Still pump GUI events while waiting for next frame.
+                if window_made and (cv2.waitKey(1) & 0xff) in (ord('q'), 27):
+                    break
+                continue
+            previous, gray, dep, seq, arrived, intrinsics = pair
+            if not window_made:
+                cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL | cv2.WINDOW_GUI_NORMAL)
+                cv2.resizeWindow(WINDOW, 1280, 610)
+                window_made = True
+            left = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+            right = depth_visual(dep)
+            state = latest.get()
+            if time.monotonic() - state.arrived_at < 0.8:
+                for b in state.boxes:
+                    x1, y1, x2, y2 = b
+                    for img in (left, right):
+                        cv2.rectangle(img, (x1, y1), (x2, y2), (35, 220, 80), 2)
+                    measurement = face_depth(dep, b)
+                    if measurement:
+                        mm, ratio, spread = measurement
+                        label = f'Z {mm:.0f}mm | valid {ratio*100:.0f}% | range {spread:.0f}mm'
+                        cv2.putText(right, label, (10, 50),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.48, (255,255,255), 2, cv2.LINE_AA)
+            if pose_enabled:
+                fresh = (time.monotonic() - state.arrived_at < 0.6)
+                if fresh and state.pose is not None:
+                    if state.seq != last_pose_seq:
+                        last_pose_seq = state.seq
+                        guide.consume(state.pose)
+                    if guide.base is None:
+                        msg = 'Look straight ahead, press C: calibrate front'
+                    else:
+                        dy = state.pose[0]-guide.base[0]
+                        dp = state.pose[1]-guide.base[1]
+                        msg = f'Relative tilt: yaw {dy:+.0f}, pitch {dp:+.0f} deg (approx)'
+                    cv2.putText(left, msg[:65], (8, 46),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.39, (255,255,255), 2, cv2.LINE_AA)
+                else:
+                    cv2.putText(left, '3D tilt: missing/unreliable depth patches', (8, 46),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.38, (255,255,255), 1, cv2.LINE_AA)
+                cv2.putText(left,
+                            'Movement: ' + ' '.join((k+':OK' if k in guide.hits else k+':--')
+                                                  for k in ('FRONT','YAW-','YAW+','PITCH-','PITCH+')),
+                            (8, 68), cv2.FONT_HERSHEY_SIMPLEX, 0.34,
+                            (80,220,80), 1, cv2.LINE_AA)
+            if state.error:
+                cv2.putText(left, state.error[:56], (8, 84 if pose_enabled else 50),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,0,255), 1, cv2.LINE_AA)
+            frames_drawn += 1
+            elapsed = time.monotonic() - fps_start
+            if elapsed >= 1.0:
+                fps = frames_drawn / elapsed
+                frames_drawn = 0
+                fps_start = time.monotonic()
+            cv2.putText(left, f'IR | {fps:.1f} FPS', (8, 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.58, (255,255,255), 2, cv2.LINE_AA)
+            cv2.putText(right, f'DEPTH mm | detect {state.analysis_ms:.0f}ms', (8,20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.58, (255,255,255), 2, cv2.LINE_AA)
+            both = np.hstack((left, right))
+            cv2.putText(both, 'Experimental depth ROI - NOT biometric verification',
+                        (14, H-11), cv2.FONT_HERSHEY_SIMPLEX, 0.45,
+                        (0,230,230), 1, cv2.LINE_AA)
+            cv2.imshow(WINDOW, both)
+            key = cv2.waitKey(1) & 0xff
+            if pose_enabled and key == ord('c'):
+                if (time.monotonic() - state.arrived_at < 0.6 and
+                    state.pose is not None):
+                    guide.reset(state.pose)
+                    print(f'3D tilt reference set at frame {state.seq}; move slowly. (not enrollment)')
+                else:
+                    print('Cannot calibrate: no reliable fresh face/depth sample')
+            if key in (ord('q'), 27):
+                break
+    finally:
+        stop.set()
+        proc.terminate()
+        try:
+            proc.wait(timeout=4)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=2)
+        reader.join(timeout=2)
+        analyzer.join(timeout=2)
+        if window_made:
+            cv2.destroyAllWindows()
+    print('Face3D stopped; sensor released.')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--producer', required=True)
+    parser.add_argument('--detector', choices=('auto', 'dlib', 'haar'), default='auto')
+    parser.add_argument('--pose', action='store_true', help='experimental relative 3D head motion guide')
+    parser.add_argument('--turn-threshold', type=float, default=12.0,
+                        help='relative depth-tilt threshold in degrees (default 12)')
+    args = parser.parse_args()
+    if not 4 <= args.turn_threshold <= 30:
+        parser.error('--turn-threshold must be between 4 and 30 degrees')
+    try:
+        run(args.producer, args.detector, args.pose, args.turn_threshold)
+    except KeyboardInterrupt:
+        print('\nStopped (Ctrl+C).')
+    except Exception as exc:
+        print(f'Face3D error: {exc}', file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()
