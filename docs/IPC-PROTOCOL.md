@@ -21,7 +21,7 @@ Odpowiedź:
 `get_status` zwraca obecnie:
 
 ```json
-{"protocol_version":1,"request_id":2,"ok":true,"result":{"state":"unavailable","sensor_open":false,"reason":"sensor_backend_not_implemented"}}
+{"protocol_version":1,"request_id":2,"ok":true,"result":{"state":"unavailable","sensor_open":false,"reason":"sensor_backend_not_implemented","usb_detection":{"source":"sysfs","scan_ok":true,"device_count":0}}}
 ```
 
 Dla `get_status` odpowiedź zawiera też pole `usb_detection` z wartościami `source: "sysfs"`, `scan_ok: bool` i `device_count: int`. Pole `state: "unavailable"` pozostaje celowo bez zmian — backend strumieniowania i otwierania USB nie jest jeszcze zaimplementowany.
