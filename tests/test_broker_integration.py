@@ -72,10 +72,27 @@ class BrokerIntegrationTests(unittest.TestCase):
     def test_ping_and_status(self):
         client = BrokerClient(self.path)
         self.assertTrue(client.ping())
-        self.assertEqual(client.get_status(), {
-            "state": "unavailable", "sensor_open": False,
-            "reason": "sensor_backend_not_implemented",
-        })
+        status = client.get_status()
+        self.assertEqual(status["state"], "unavailable")
+        self.assertIs(status["sensor_open"], False)
+        self.assertEqual(status["reason"], "sensor_backend_not_implemented")
+        self.assertEqual(status["usb_detection"]["source"], "sysfs")
+        self.assertIs(type(status["usb_detection"]["scan_ok"]), bool)
+        self.assertIs(type(status["usb_detection"]["device_count"]), int)
+        self.assertGreaterEqual(status["usb_detection"]["device_count"], 0)
+
+    def test_list_devices_has_no_serials_or_streaming_claim(self):
+        info = BrokerClient(self.path).list_devices()
+        self.assertEqual(info["source"], "sysfs")
+        self.assertIs(type(info["scan_ok"]), bool)
+        self.assertIs(type(info["devices"]), list)
+        for device in info["devices"]:
+            self.assertEqual(set(device), {"sysfs_name", "vendor_id", "product_id"})
+            self.assertIs(type(device["sysfs_name"]), str)
+            self.assertEqual((device["vendor_id"], device["product_id"]),
+                             ("045e", "02c4"))
+        # The physical device may be absent on CI; zero detected is valid.
+        self.assertTrue(BrokerClient(self.path).ping())
 
     def test_multiple_independent_clients(self):
         self.assertTrue(BrokerClient(self.path).ping())
