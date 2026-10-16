@@ -111,6 +111,27 @@ class BrokerIntegrationTests(unittest.TestCase):
                 self.assertIsNone(self.raw(payload))
         self.assertTrue(BrokerClient(self.path).ping())
 
+    def test_duplicate_nested_fields_rejected(self):
+        payload = (b'{"protocol_version":1,"request_id":1,"op":"ping",'
+                   b'"params":{"x":1,"x":2}}')
+        self.assertIsNone(self.raw(self.frame(payload)))
+        self.assertTrue(BrokerClient(self.path).ping())
+
+    def test_json_nesting_limit_rejected(self):
+        deep = b'[' * 34 + b'0' + b']' * 34
+        body = (b'{"protocol_version":1,"request_id":1,"op":"ping",'
+                b'"params":{"nested":' + deep + b'}}')
+        self.assertIsNone(self.raw(self.frame(body)))
+        self.assertTrue(BrokerClient(self.path).ping())
+
+    def test_request_id_rejects_wrong_type_or_excess_range(self):
+        for request_id in ("true", "1.25", "-1", "10000000000000000"):
+            payload = ('{"protocol_version":1,"request_id":' + request_id +
+                       ',"op":"ping","params":{}}').encode()
+            with self.subTest(request_id=request_id):
+                self.assertIsNone(self.raw(self.frame(payload)))
+        self.assertTrue(BrokerClient(self.path).ping())
+
     def test_invalid_socket_directory_denied(self):
         with tempfile.TemporaryDirectory() as other:
             os.chmod(other, 0o755)
