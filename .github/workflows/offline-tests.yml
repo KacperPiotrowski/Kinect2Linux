@@ -18,6 +18,8 @@ jobs:
           python-version: '3.12'
       - name: Install offline test dependencies
         run: python -m pip install -r requirements-test.txt
+      - name: Install C++ JSON development headers
+        run: sudo apt-get update -qq && sudo apt-get install -y nlohmann-json3-dev
       - name: Build C++ control broker (no Kinect hardware)
         run: bash tools/build_broker.sh
       - name: Python unit tests and C++ broker IPC integration
