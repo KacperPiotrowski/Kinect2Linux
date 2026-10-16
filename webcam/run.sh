@@ -14,4 +14,6 @@ fi
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
 export OMP_DYNAMIC=FALSE
 export KINECT_RGB_LOCK="$LOCK"
+# Read-only runtime snapshot for ./kinect2 status (never stored in the Git repo).
+export KINECT_RGB_STATE="${KINECT_RGB_STATE:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/kinect2-rgb-state.json}"
 exec "$APP" "$CAMERA"

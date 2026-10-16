@@ -44,12 +44,17 @@ def select_view(data: dict, action: str) -> dict:
                 'sensor_streaming_last_known': data['rgb']['sensor_streaming'],
                 'streaming_clients_last_known': data['rgb']['streaming_clients'],
                 'last_event_at': data['rgb']['last_event_at'],
+                'state_source': data['rgb'].get('state_source', 'unknown'),
+                'state_fresh': data['rgb'].get('state_fresh', False),
+                'state_age_ms': data['rgb'].get('state_age_ms'),
+                'state_updated_at': data['rgb'].get('state_updated_at'),
+                'capture_stats': data['rgb'].get('capture_stats'),
                 'openers_not_necessarily_streaming': data['rgb']['openers'],
             },
             'usb_lock': data['usb_lock'],
-            'note': ('Liczba odbiorcow pochodzi z ostatnich zdarzen aktywnego mostka; '
-                     'otwarty deskryptor V4L2 nie dowodzi odbierania obrazu. '
-                     'PipeWire moze ukrywac faktycznego odbiorce.'),
+            'note': ('Swieze dane pochodza z aktualizowanego stanu mostka; w przeciwnym razie '
+                     'dane sa ostatnim znanym stanem. Otwarty deskryptor V4L2 nie dowodzi odbioru. '
+                     'PipeWire moze ukrywac odbiorce.'),
         }
     raise ValueError(f'Unknown action: {action}')
 
@@ -72,9 +77,10 @@ def pretty_clients(view: dict) -> str:
     rgb, lock = view['rgb'], view['usb_lock']
     lines = [
         f"Most RGB: usluga={rgb['service']} | PID={label(rgb['bridge_pid'])}",
-        f"Kinect RGB strumieniuje (ostatni znany stan): {label(rgb['sensor_streaming_last_known'])}",
-        f"Odbiorcy strumienia (ostatnie zdarzenie mostka): {label(rgb['streaming_clients_last_known'])}",
-        f"Zdarzenie statusu: {label(rgb['last_event_at'])}",
+        f"Kinect RGB strumieniuje ({'na żywo' if rgb['state_fresh'] else 'ostatni znany stan'}): {label(rgb['sensor_streaming_last_known'])}",
+        f"Odbiorcy strumienia ({'na żywo' if rgb['state_fresh'] else 'ostatnie zdarzenie'}): {label(rgb['streaming_clients_last_known'])}",
+        f"Źródło statusu: {rgb['state_source']} | wiek: {label(rgb['state_age_ms'])} ms",
+        f"Ostatnia aktualizacja: {label(rgb['state_updated_at'] or rgb['last_event_at'])}",
         f"Blokada USB: {label(lock['held'])} | wlasciciel: {label(lock['owner_name'])} "
         f"PID={label(lock['owner_pid'])}",
         'Procesy z otwarta kamera (to NIE dowodzi pobierania klatek):',
