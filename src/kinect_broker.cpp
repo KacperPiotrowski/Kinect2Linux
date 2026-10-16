@@ -21,7 +21,6 @@
 
 namespace {
 constexpr uint32_t MAX_CONTROL_BYTES = 65536;
-constexpr int MAX_JSON_DEPTH = 32;
 volatile std::sig_atomic_t running = 1;
 
 void stop_handler(int) { running = 0; }
