@@ -1,3 +1,5 @@
+> **Historyczna iteracja Face3D.** Poniższe instrukcje patchowania mogą być nieaktualne. Obecny punkt wejścia opisuje [EXPERIMENTS.md](../EXPERIMENTS.md).
+
 # Kinect2 Face3D Stage 3 — eksperymentalne zbieranie 5 póz
 
 Ten etap **nie jest bezpiecznym systemem uwierzytelniania**. Nie ingeruje w Howdy, PAM, `/dev/video10`, `libfreenect2` ani działający most Kinecta.

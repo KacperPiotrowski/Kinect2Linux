@@ -1,120 +1,88 @@
-# Kinect2-Linux — działający punkt startowy (MVP 0.1)
+# Kinect2-Linux
 
-**Status: eksperymentalny.** To zestaw uruchomieniowy wykorzystujący już przetestowane
-na Arch Linux komponenty Kinecta v2. Nie jest gotowym systemem autoryzacji biometrycznej.
+**Open source · Linux · Kinect v2 / Kinect for Windows v2**
 
-## Co działa / co pozostaje do zrobienia
+Eksperymentalny zestaw narzędzi i zalążek SDK dla Microsoft Kinect v2. Cel: **proste uruchomienie** i **pełny dostęp do oryginalnych danych** RGB, IR, Depth i czterech mikrofonów. Żadne narzędzie zewnętrzne (EasyEffects, MediaPipe, Howdy) nie jest obowiązkowym elementem ścieżki przechwytywania. Projekt **nie jest jeszcze pełnym, plug-and-play SDK 2.0**; plan migracji jest w [docs/REBUILD-PLAN.md](docs/REBUILD-PLAN.md).
 
-| Funkcja | Status |
+> Projekt społecznościowy, nieoficjalny; nie jest częścią Microsoft ani OpenKinect. Nie służy obecnie do bezpiecznej autoryzacji biometrycznej.
+
+## Aktualny stan — 16 października 2026
+
+| Funkcja | Stan i ograniczenia |
 | --- | --- |
-| Kinect v2 RGB 1080p30 (libfreenect2) | Zweryfikowane w oddzielnych testach |
-| IR + Depth 512×424, 30 FPS z OpenMP | Zweryfikowane: 900 par, brak luk przy 4 wątkach |
-| IR → V4L2 `/dev/video10` | Zweryfikowane: OpenCV `(424, 512, 3)` |
-| Podgląd IR z analizą w osobnym wątku | Nowy prototyp, do testu na KDE Wayland |
-| Prowadzone zbieranie 5 modeli Howdy | Skrypt, z ręcznym ustawianiem pozycji; do testu |
-| Automatyczna ocena obrotu głowy | Jeszcze nie zaimplementowana |
-| Weryfikacja 3D / odporność na spoofing | Jeszcze nie zaimplementowana |
-| Systemowa usługa pre-login / PAM | Celowo nie wdrożone |
-| Jednoczesne RGB+IR+Depth przez jeden proces | Do wykonania po testach stabilności |
+| Kinect v2 USB | Wykrywany przez diagnostykę |
+| RGB | 1920×1080, YUYV, `/dev/video11`, most z aktywacją na żądanie; Firefox i przechwycenie klatki FFmpeg przetestowane; podgląd `ffplay` bywa czarny |
+| IR | 512×424, `/dev/video10` przez V4L2; płynny podgląd potwierdzony przez testującego |
+| Depth | 512×424, float32 w mm; test 120/120 par IR+Depth, bez luk sekwencji |
+| Audio | Natywny odczyt ALSA: 4 kanały, 16 kHz, S32_LE; bez obowiązkowego downmixu |
+| Python | Narzędzia diagnostyczne i prototypy; docelowe wysokopoziomowe SDK Python jest planowane, jeszcze niezaimplementowane |
+| Jednoczesny dostęp przez jeden rdzeń | **Planowane**, nie zaimplementowane |
+| Body/Face Tracking | Eksperymenty osobno, MediaPipe wstrzymane; brak stabilnego API |
 
-## Warunki
+Wyniki pochodzą z lokalnych testów na jednym sprzęcie, **nie** z oficjalnej certyfikacji. Szczegóły: [punkt odniesienia](docs/BASELINE-2026-10-16.md).
 
-- Linux/Arch, Kinect v2, skompilowany `libfreenect2-omp` z OpenMP.
-- Działający `v4l2loopback` na `/dev/video10`.
-- Python z `python-opencv`, `python-numpy`, opcjonalnie `python-dlib` (Howdy zapewnia własne dlib).
-- `howdy-git` do `enroll`, `models`, `test`.
+## Szybki start (obecny prototyp — Arch Linux)
 
-Przykładowe drzewo plików obok istniejących katalogów:
-
-```text
-~/Projekty/kinect/
-├── libfreenect2/        # nietknięta wersja referencyjna
-├── libfreenect2-omp/    # przetestowana poprawka OpenMP
-└── Kinect2-Linux/       # ten projekt
-```
-
-## Najkrótsza droga do uruchomienia
+Założenia: Kinect v2 z zasilaczem i USB 3.0; sąsiedni katalog `../libfreenect2-omp` z kompilacją `build-omp` i biblioteką `libfreenect2.so`; `v4l2loopback`, `python3`, `numpy`, `opencv` i narzędzie `flock` (z `util-linux`). Nie dostarczamy w tym repozytorium sterownika OpenKinect ani modułu jądra. Ścieżkę biblioteki można ustawić przez `LIBFREENECT2_DIR`.
 
 ```bash
-cd ~/Projekty/kinect/Kinect2-Linux
+./kinect2 status         # tylko diagnostyka: nie otwiera sensora
+./kinect2 devices
+./kinect2 clients
 ./kinect2 doctor
-./kinect2 build
+./kinect2 build          # most IR, jeśli istnieje libfreenect2-omp
+```
+
+### IR i Depth
+
+Zatrzymaj klientów RGB i inne programy otwierające fizyczny sensor przed uruchomieniem mostu IR — **jeden proces jest obecnie właścicielem USB**. Przy nieobecnym `/dev/video10` skonfiguruj `v4l2loopback` zgodnie z instrukcjami systemowymi. W pierwszym terminalu:
+
+```bash
 ./kinect2 run
 ```
 
-`run` zostaje uruchomiony w pierwszym terminalu. W drugim:
+W drugim terminalu:
 
 ```bash
-cd ~/Projekty/kinect/Kinect2-Linux
-./kinect2 preview
+./kinect2 preview          # IR V4L2 + niezależna analiza twarzy
 ```
 
-Jeśli `/dev/video10` nie istnieje, a DKMS odpowiada wersji uruchomionego kernela:
+Po zakończeniu mostu (Ctrl+C) możesz wykonać test Depth:
 
 ```bash
-sudo modprobe v4l2loopback video_nr=10 card_label=Kinect-v2-IR exclusive_caps=1
+./kinect2 depth 120
 ```
 
-Do podglądu nie trzeba `sudo`. Aby potwierdzić obsługę strumienia przez OpenCV:
+### RGB jako kamera systemowa
 
-```bash
-python3 -c 'import cv2; c=cv2.VideoCapture("/dev/video10",cv2.CAP_V4L2); print(c.read()[0]); c.release()'
-```
+Instalacja urządzenia i usług **zmienia konfigurację systemu**. Wykonuj ją świadomie (nie jest potrzebna do poleceń `status/devices/clients`). Instrukcja: [docs/RGB-ON-DEMAND.md](docs/RGB-ON-DEMAND.md). Kod uruchomieniowy: `webcam/`. Samo wykrycie `/dev/video11` nie oznacza aktualnego przesyłania klatek.
 
-### Prowadzona rejestracja kilku ujęć w Howdy
+### Mikrofony
 
-**Uwaga:** na tym etapie ustawianie głowy jest ręczne. Skrypt prosi o wykonanie
-kolejnych póz, ale nie weryfikuje jeszcze ich algorytmicznie. Nie należy tego
-mylić z procesem Face ID.
+Mikrofony ALSA działają niezależnie od mostu RGB. Przetwarzanie 4ch → mono/stereo to **opcjonalna**, jawna operacja po stronie klienta. Przykład odczytu natywnego i bezpiecznej analizy: [docs/AUDIO.md](docs/AUDIO.md).
 
-Podczas działania mostu IR w drugim terminalu:
+## Dokumentacja i przykłady
 
-```bash
-./kinect2 enroll
-./kinect2 models
-./kinect2 test
-```
+- [Plan przebudowy](docs/REBUILD-PLAN.md) — architektura wspólnego rdzenia i IPC.
+- [Status API](docs/STATUS.md) oraz [Live Status](docs/LIVE-STATUS.md) — odczyt bez otwierania USB.
+- [RGB on-demand](docs/RGB-ON-DEMAND.md) — aktualna konfiguracja wirtualnej kamery.
+- [Point Cloud](docs/POINT-CLOUD.md) — eksperyment z chmurą punktów (nie część głównej ścieżki).
+- Narzędzia Pythona: `tools/kinect2_status.py`, `tools/audio_raw_analyze.py`, `face/preview.py`. Publiczne API Python powstanie w ramach przebudowy rdzenia.
+- [Eksperymenty Face3D, Howdy, MediaPipe](docs/EXPERIMENTS.md) — opcjonalne, nie do uwierzytelniania.
+- [Współtworzenie](CONTRIBUTING.md), [zależności](docs/DEPENDENCIES.md), [licencje](THIRD_PARTY.md).
+- `docs/history/` zawiera **nieaktualne** instrukcje zachowane wyłącznie jako historia.
 
-`enroll` wywołuje oficjalne `sudo howdy add` pięć razy, opisując pozy: przód,
-lewo, prawo, góra, dół. Podczas każdego kroku wpisz zaproponowaną nazwę modelu.
-Nie usuwa wcześniejszych modeli ani nie modyfikuje PAM. Wersje Howdy różnią
-się sposobem doboru klatki — sprawdź wynik `models` oraz `test`.
-
-**Nie włączaj jeszcze PAM/SDDM/sudo na podstawie wyników tego MVP.**
-Standardowe Howdy nie weryfikuje tutaj głębi i może być podatne na podszywanie się.
-
-## Zachowanie precyzji IR
-
-Most wykorzystuje wartości float32 dostarczane przez `libfreenect2` i obcina
-je do 8-bitowej luminancji **dopiero** przy wysyłaniu YUYV dla V4L2. To nie
-jest surowy 12-bitowy ani 16-bitowy strumień dla analiz 3D. Pliki `*.f32`
-z naszych wcześniejszych pomiarów zachowują pełne liczby z libfreenect2.
-Odczyt Depth bezpośrednio do modułu rozpoznawania będzie następną częścią runtime.
-
-## Układ projektu
-
-- `src/kinect_ir_bridge.cpp` — oryginalny, sprawdzony kod IR→YUYV/V4L2.
-- `face/preview.py` — trzy niezależne czynności: odbiór, detekcja i GUI.
-  **Detekcja nie oznacza potwierdzenia tożsamości.**
-- `kinect2` — jeden launcher do lokalnego build/run/test/enroll.
-- `tests/` — testy bez sprzętu.
-- `docs/ROADMAP.md` — kolejne etapy i warunki odbioru.
-
-## Testy bez sprzętu
+## Testy bez urządzenia
 
 ```bash
 python3 -m unittest discover -s tests -v
-bash -n kinect2
+bash -n kinect2 face3d webcam/*.sh
 ```
 
-## Rejestracja w repozytorium i upstream
+Zależności testowe Pythona są wyszczególnione w `requirements-test.txt`; do części testów potrzebne są NumPy i OpenCV.
 
-Załóż nowe repo `Kinect2-Linux`, zatwierdź pliki i opisz wersję jako MVP 0.1.
-Nie wrzucaj zdjęć twarzy, plików `*.f32`, kluczy, modeli biometrycznych,
-prywatnych logów ani lokalnych CSV.
+Nie wszystkie testy integracyjne da się wykonać bez fizycznego Kinecta. Budowa i uruchomienie C++ wymagają sprawdzenia na docelowym Linuksie przed wydaniem.
 
-Poprawkę w `libfreenect2-omp` trzymaj w osobnej gałęzi/forku i przygotuj PR
-po testach poprawności filtrów, kompilacji bez OpenMP oraz na innych CPU.
-Poprawki do Howdy (np. `cli/test.py`) zgłaszaj jako oddzielne PR-y.
+## Prywatność i licencja
 
-Licencja: patrz `LICENSE` dla własnych plików oraz `THIRD_PARTY.md`.
+**Nie dodawaj do repozytorium** nagrań głosu, obrazów twarzy, chmur punktów, plików kalibracyjnych z identyfikatorem sensora, osobistych logów i zewnętrznych wag modeli. Więcej w [CONTRIBUTING.md](CONTRIBUTING.md). Własny kod jest udostępniany na licencji [MIT](LICENSE); zależności zachowują własne licencje. Przed wydaniem binarnym konieczny jest niezależny przegląd prawny zależności i pochodzenia plików.

@@ -41,50 +41,6 @@ Nie zmieniono `schema_version=1`; stare pola pozostały dostępne.
 nie jest pewna identyfikacja aplikacji nagrywającej. Ani stan pliku,
 ani kontrola kamerki nie zastępują systemowych zabezpieczeń prywatności.
 
-## Wdrożenie
+## Stan bieżący
 
-Patch jest przygotowany na:
-
-- `src/kinect_rgb_bridge.cpp` z paczki **on-demand** i późniejszą poprawką
-  `ENOENT`;
-- `webcam/run.sh` z paczki **on-demand**;
-- `tools/kinect2_status.py` z pierwszego Status API;
-- `tools/kinect2_inspect.py` z integracji `status/devices/clients`.
-
-Z katalogu projektu:
-
-```bash
-cp -a bin/kinect_rgb_bridge bin/kinect_rgb_bridge.before-live-status
-git apply --check kinect2-live-status.patch
-git apply kinect2-live-status.patch
-python3 -m unittest discover -s tests -p test_live_status.py -q
-bash webcam/build.sh
-systemctl --user restart kinect2-rgb-webcam.service
-./kinect2 status --json
-./kinect2 clients --json
-```
-
-W razie konfliktu patcha **nie wymuszaj jego nałożenia**. Fizycznego
-sensora nie testowano w środowisku budowania tej poprawki.
-
-### Przywrócenie
-
-Przy zatrzymanej usłudze:
-
-```bash
-systemctl --user stop kinect2-rgb-webcam.service
-cp -a bin/kinect_rgb_bridge.before-live-status bin/kinect_rgb_bridge
-git apply -R kinect2-live-status.patch
-systemctl --user start kinect2-rgb-webcam.service
-```
-
-W przypadku konfliktów przy cofaniu patcha przywróć pliki źródłowe z
-lokalnego Git/kopii, nie kasuj ich w ciemno.
-
-## Przed publikacją GitHub
-
-Nie wrzucaj nagrań twarzy IR/RGB, próbek biometrycznych, plików
-`enrollments`, prywatnych WAV, logów zawierających identyfikatory USB,
-folderów `.venv*`, lokalnych bibliotek i skompilowanych binariów.
-`libfreenect2`, model dlib, Howdy oraz inne zależności mają własne licencje.
-Projekt nie zawiera i nie powinien udawać kodu Microsoft Kinect SDK 2.0.
+Obsługa jest już w kodzie mostu, a odczyt w `tools/kinect2_status.py` i `tools/kinect2_inspect.py`. Nie nakładaj dawnych patchy `kinect2-live-status.patch` ani nie przywracaj plików `*.before-live-status` z dokumentów historycznych. Aktualizacje wykonuj przez Git, a następnie testy offline i sprzętowe. Zobacz [STATUS.md](STATUS.md).
