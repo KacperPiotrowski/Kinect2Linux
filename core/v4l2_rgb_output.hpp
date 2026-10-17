@@ -3,6 +3,7 @@
 #include "core/frame_hub.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -65,6 +66,7 @@ class V4l2RgbOutput final : public FrameSink {
   std::vector<std::uint8_t> black_;
   bool has_pending_ = false;
   bool needs_black_ = false;
+  std::chrono::steady_clock::time_point last_rgb_{}; // worker only
   std::string last_error_;
   std::thread worker_;
 };
