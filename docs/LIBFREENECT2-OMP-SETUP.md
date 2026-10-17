@@ -66,9 +66,9 @@ można jawnie ustawić:
 
 ## Ograniczenia
 
-- To pierwszy **przenośny przepis źródłowy**, a nie zbudowany release:
-  do oznaczenia Ready potrzebny test świeżego pobrania, nowej
-  kompilacji biblioteki i pracy na rzeczywistym Kinekcie.
+- **Świeży build i test na fizycznym Kinekcie zaliczone na jednym Arch Linux**
+  (szczegóły poniżej); nadal nie jest to dystrybuowany release ani test
+  wielodystrybucyjny.
 - CPU-only; nie włącza automatycznie OpenCL, OpenGL ani CUDA.
 - Zależność wymaga dostępu do GitHub przy pierwszej instalacji,
   więc jeszcze nie jest samowystarczalną instalacją offline.
@@ -79,6 +79,39 @@ można jawnie ustawić:
   wykazały duże zużycie CPU bez limitu wątków i różnice w odczuwalnej
   latencji przy wymuszonym `OMP_NUM_THREADS=4`.
 - Nie zmienia `main` aż do ręcznego scalenia PR.
+
+## Potwierdzenie sprzętowe maintenera — 17 października 2026
+
+Na Arch Linux, GCC/G++ 16.2.1, libusb 1.0.30, libjpeg-turbo,
+użytkownik wykonał **pełne pobranie źródeł z brakującymi wcześniej
+nagłówkami, zastosowanie i weryfikację patcha OpenMP, kompilację
+libfreenect2.so oraz kinect2-broker-hw**. Komenda `ldd` wskazała
+`third_party/libfreenect2-omp/build-omp/lib/libfreenect2.so.0.2`,
+a nie starą bibliotekę z katalogu obok repo.
+
+Broker uruchomiony z `OMP_NUM_THREADS=4 OMP_DYNAMIC=FALSE`.
+Benchmark `python3 tools/benchmark_capture.py --warmup 3 --duration 5`:
+
+| Tryb | RGB FPS | IR FPS | Depth FPS | Luki RGB/IR/Depth | CPU brokera |
+| --- | ---: | ---: | ---: | --- | ---: |
+| RGB A | 30,2 | 0 | 0 | 0/0/0 | 19% |
+| RGB+IR+Depth A | 30,0 | 30,0 | 30,0 | 0/0/0 | 223% |
+| IR+Depth | 0 | 30,0 | 30,0 | 0/0/0 | 203% |
+| RGB+IR+Depth B | 30,0 | 30,0 | 30,0 | 0/0/0 | 221% |
+| RGB B | 30,0 | 0 | 0 | 0/0/0 | 20% |
+
+RGB-only mediana 30,10 FPS; RGB combined 30,00 FPS
+(99,7% wyniku solo). CPU 100% = jeden całkowicie zajęty
+procesor logiczny. To **zliczanie odebranych ramek**, bez
+weryfikacji pikseli, rzeczywistego opóźnienia USB→ekran,
+utrat pakietów USB ani długotrwałej stabilności. Oświetlenie
+mogło być wystarczająco silne dla RGB 30 FPS; wcześniej przy
+słabszym świetle RGB miało 15 FPS. Test nie dotyczy czterech
+klientów GUI, którzy pozostają w osobnym PR #11.
+
+`-Waddress-of-packed-member` z oryginalnego kodu oraz
+ostrzeżenie o minimalnej wersji CMake nie zablokowały buildu;
+wymagają odrębnej oceny, nie są potwierdzeniem błędów wykonania.
 
 ## Prawa autorskie i licencje
 
