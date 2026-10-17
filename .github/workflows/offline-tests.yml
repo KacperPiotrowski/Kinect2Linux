@@ -30,6 +30,8 @@ jobs:
         run: ./bin/test_sequence_gap_tracker
       - name: Native supervised worker lifecycle tests
         run: ./bin/test_worker_process "$PWD/bin/kinect2-worker"
+      - name: Native four-client frame fanout (mock frame bytes, no Kinect)
+        run: ./bin/test_frame_hub
       - name: Python unit tests and C++ broker IPC integration
         env:
           KINECT2_BROKER_BIN: ${{ github.workspace }}/bin/kinect2-broker
