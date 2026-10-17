@@ -13,8 +13,10 @@
 #include "core/sensor_backend.hpp"
 #include "core/device_session.hpp"
 #include "core/frame_hub.hpp"
+#include "core/auto_capture.hpp"
 #include "core/worker_process.hpp"
 #include <memory>
+#include <poll.h>
 #include <vector>
 #include <stdexcept>
 #include <string>
@@ -101,7 +103,8 @@ void send_json(int fd, const std::string& body) {
 void handle_client(int fd, const kinect2::SensorBackend& backend,
                    kinect2::DeviceSession* device_session,
                    kinect2::WorkerProcess* worker_process,
-                   kinect2::FrameHub* frame_hub) {
+                   kinect2::FrameHub* frame_hub,
+                   kinect2::AutoCapture* auto_capture) {
   struct ucred peer {};
   socklen_t size = sizeof(peer);
   if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &peer, &size) != 0 ||
@@ -146,6 +149,8 @@ void handle_client(int fd, const kinect2::SensorBackend& backend,
                                            kinect2::StreamSelection{};
     const auto counters = device_session ? device_session->counters() :
                                            kinect2::StreamCounters{};
+    const auto viewers = frame_hub ? frame_hub->subscriptions() :
+                                     kinect2::SubscriptionCounts{};
     response["ok"] = true;
     response["result"] = {
       {"state", !device_session ? "unavailable" :
@@ -154,13 +159,18 @@ void handle_client(int fd, const kinect2::SensorBackend& backend,
       {"streaming", streaming}, // active capture configuration, not health proof
       {"device_control_enabled", device_session != nullptr},
       {"frame_preview", {{"enabled", frame_hub != nullptr},
-                         {"subscribers", frame_hub ? frame_hub->subscriber_count() : 0}}},
+                         {"subscribers", viewers.total()},
+                         {"rgb", viewers.rgb}, {"ir", viewers.ir},
+                         {"depth", viewers.depth},
+                         {"mode", auto_capture ? "automatic" : "manual"},
+                         {"last_error", auto_capture ? auto_capture->last_error() : ""}}},
       {"worker", {{"enabled", worker_process != nullptr},
                   {"pid", worker_process ? worker_process->pid() : 0},
                   {"healthy", worker_process && worker_process->ping()}}},
       {"reason", !device_session ? "sensor_backend_not_implemented" :
-                  (frame_hub ? "experimental_frame_preview" :
-                               "frame_transport_not_implemented")},
+                  (auto_capture ? "automatic_subscriber_capture" :
+                   (frame_hub ? "experimental_frame_preview" :
+                                "frame_transport_not_implemented"))},
       {"selected", {{"rgb", selected.rgb}, {"ir_depth", selected.ir_depth}}},
       {"frame_counts", {{"rgb", counters.rgb_frames},
                         {"ir", counters.ir_frames},
@@ -173,6 +183,13 @@ void handle_client(int fd, const kinect2::SensorBackend& backend,
                          {"device_count", discovery.devices.size()}}}
     };
   } else if (op == "start_streams" || op == "stop_streams") {
+    // In auto mode one client must never stop USB for other subscribers.
+    if (auto_capture) {
+      response["ok"] = false;
+      response["error"] = {{"code", "managed_by_subscribers"}};
+      send_json(fd, response.dump());
+      return;
+    }
     const auto& params = request["params"];
     if (!device_session) {
       response["ok"] = false;
@@ -205,6 +222,12 @@ void handle_client(int fd, const kinect2::SensorBackend& backend,
       response["result"] = {{"streaming", false}};
     }
   } else if (op == "open_device" || op == "close_device") {
+    if (auto_capture) {
+      response["ok"] = false;
+      response["error"] = {{"code", "managed_by_subscribers"}};
+      send_json(fd, response.dump());
+      return;
+    }
     if (!request["params"].empty()) {
       response["ok"] = false;
       response["error"] = {{"code", "invalid_arguments"}};
@@ -263,9 +286,10 @@ int main(int argc, char** argv) {
   std::string path;
   bool allow_device_control = false;
   bool enable_frame_preview = false;
+  bool auto_streams = false;
   std::string worker_executable;
   if (argc == 2 && std::string_view(argv[1]) == "--help") {
-    std::cout << "Usage: kinect2-broker [--socket PATH] [--allow-device-control] [--worker /ABS/PATH] [--frame-preview]\n"
+    std::cout << "Usage: kinect2-broker [--socket PATH] [--allow-device-control] [--worker /ABS/PATH] [--frame-preview] [--auto-streams]\n"
                  "Device control requires a separate --with-hardware build.\n";
     return 0;
   }
@@ -276,12 +300,18 @@ int main(int argc, char** argv) {
       allow_device_control = true;
     else if (arg == "--frame-preview" && !enable_frame_preview)
       enable_frame_preview = true;
+    else if (arg == "--auto-streams" && !auto_streams)
+      auto_streams = true;
     else if (arg == "--worker" && worker_executable.empty() && i + 1 < argc)
       worker_executable = argv[++i];
     else {
       std::cerr << "Usage: kinect2-broker [--socket PATH] [--allow-device-control]\n";
       return 2;
     }
+  }
+  if (auto_streams && !enable_frame_preview) {
+    std::cerr << "--auto-streams requires --frame-preview and hardware control.\n";
+    return 2;
   }
   if (enable_frame_preview && !allow_device_control) {
     std::cerr << "--frame-preview requires --allow-device-control.\n";
@@ -363,21 +393,38 @@ int main(int argc, char** argv) {
     device_session->set_frame_sink(frame_hub.get());
     std::cout << "Experimental frame preview socket: " << frame_path << '\n';
   }
+  std::unique_ptr<kinect2::AutoCapture> auto_capture;
+  if (auto_streams) auto_capture = std::make_unique<kinect2::AutoCapture>(*device_session);
   kinect2::SysfsSensorBackend sensor_backend;
   std::cout << "Kinect2 broker control socket ready: " << path
             << (device_session ? " (hardware control enabled; capture opt-in)\n" :
                                   " (read-only sysfs discovery; hardware control disabled)\n")
             << std::flush;
   while (running) {
+    if (frame_hub) {
+      // The FrameHub and USB session never call into each other. The broker
+      // thread is the sole owner of all potentially blocking USB operations.
+      frame_hub->reap_disconnected();
+      if (auto_capture) auto_capture->reconcile(frame_hub->subscriptions());
+    }
+    pollfd event{server, POLLIN, 0};
+    const int ready = ::poll(&event, 1, 100);
+    if (ready < 0 && errno == EINTR) continue;
+    if (ready == 0) continue;
+    if (ready < 0 || (event.revents & (POLLNVAL | POLLERR))) {
+      perror("control poll"); break;
+    }
+    if (!(event.revents & POLLIN)) continue;
     const int client = accept4(server, nullptr, nullptr, SOCK_CLOEXEC);
     if (client < 0) {
-      if (errno == EINTR) continue;
+      if (errno == EINTR || errno == EAGAIN) continue;
       perror("accept"); break;
     }
     handle_client(client, sensor_backend, device_session.get(),
-                  worker_process.get(), frame_hub.get());
+                  worker_process.get(), frame_hub.get(), auto_capture.get());
     close(client);
   }
+  auto_capture.reset();
   worker_process.reset(); // Gracefully stop/reap child before broker exits.
   device_session.reset(); // Join capture pumps BEFORE closing frame hub.
   frame_hub.reset();
