@@ -181,7 +181,9 @@ bool V4l2RgbOutput::drain_usage() noexcept {
     std::uint32_t count = 0;
     std::memcpy(&count, event.u.data, sizeof(count));
     if (count == readers_.load()) continue;
+    const bool first_viewer = readers_.load() == 0 && count != 0;
     readers_.store(count);
+    if (first_viewer) last_rgb_ = std::chrono::steady_clock::now();
     if (count == 0) {
       std::lock_guard<std::mutex> guard(mutex_);
       has_pending_ = false;
@@ -218,7 +220,12 @@ void V4l2RgbOutput::loop() noexcept {
     if (polled > 0 && (poll_event.revents & POLLPRI) && !drain_usage())
       break;
 
-    if (readers_.load() == 0) write_black();
+    // If the broker temporarily cannot acquire USB (or native capture
+    // stalls), do not keep a stale face in the browser indefinitely.
+    if (readers_.load() &&
+        std::chrono::steady_clock::now() - last_rgb_ > std::chrono::seconds(2))
+      needs_black_ = true;
+    if (needs_black_) write_black();
     if (!running_.load()) break;
 
     {
@@ -241,6 +248,8 @@ void V4l2RgbOutput::loop() noexcept {
     if (!readers_.load()) continue;
     const ssize_t n = ::write(fd_, yuyv_.data(), yuyv_.size());
     if (n == static_cast<ssize_t>(yuyv_.size())) {
+      last_rgb_ = std::chrono::steady_clock::now();
+      needs_black_ = false;
       ++frames_;
     } else if (n == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
       ++drops_; // Always skip stale frame: USB and clients must not stall.
