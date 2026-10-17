@@ -18,8 +18,9 @@ add_library(kinect2_discovery STATIC core/sensor_backend.cpp)
 add_library(kinect2_session STATIC core/device_session.cpp)
 add_library(kinect2_hardware_stub STATIC core/libfreenect2_hardware.cpp)
 add_library(kinect2_worker_supervisor STATIC core/worker_process.cpp)
+add_library(kinect2_frame_hub STATIC core/frame_hub.cpp)
 foreach(target kinect2_discovery kinect2_session kinect2_hardware_stub
-               kinect2_worker_supervisor)
+               kinect2_worker_supervisor kinect2_frame_hub)
   target_include_directories(${target} PUBLIC "${PROJECT_SOURCE_DIR}")
 endforeach()
 
@@ -28,7 +29,7 @@ target_link_libraries(kinect2-worker PRIVATE Threads::Threads)
 
 add_executable(kinect2-broker src/kinect_broker.cpp)
 target_link_libraries(kinect2-broker PRIVATE kinect2_discovery kinect2_session
-  kinect2_hardware_stub kinect2_worker_supervisor Threads::Threads)
+  kinect2_hardware_stub kinect2_worker_supervisor kinect2_frame_hub Threads::Threads)
 
 if(KINECT2_ENABLE_HARDWARE)
   set(KINECT2_SO_DIR "${LIBFREENECT2_DIR}/build-omp/lib")
@@ -47,7 +48,7 @@ if(KINECT2_ENABLE_HARDWARE)
   add_executable(kinect2-broker-hw src/kinect_broker.cpp)
   target_link_libraries(kinect2-broker-hw PRIVATE kinect2_discovery
     kinect2_session kinect2_hardware_native kinect2_worker_supervisor
-    kinect2_local_freenect2 Threads::Threads)
+    kinect2_frame_hub kinect2_local_freenect2 Threads::Threads)
   set_target_properties(kinect2-broker-hw PROPERTIES
     BUILD_RPATH "${KINECT2_SO_DIR}")
 endif()
