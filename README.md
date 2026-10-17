@@ -14,17 +14,17 @@ are welcome: [Get involved](docs/COMMUNITY.md) ·
 [Contributing](CONTRIBUTING.md) ·
 [Open issues](https://github.com/KacperPiotrowski/Kinect2Linux/issues).
 
-## Aktualny stan — 17 października 2026 (`main`)
+## Aktualny stan — 18 października 2026 (`main`)
 
 | Funkcja | Stan i ograniczenia |
 | --- | --- |
 | Kinect v2 USB | Wykrywany przez diagnostykę |
-| RGB | 1920×1080, YUYV, `/dev/video11`, most z aktywacją na żądanie; Firefox i przechwycenie klatki FFmpeg przetestowane; podgląd `ffplay` bywa czarny |
-| IR | 512×424, `/dev/video10` przez V4L2; płynny podgląd potwierdzony przez testującego |
+| RGB | 1920×1080 przez `/dev/video11` z V4L2 obsługiwanym **wewnątrz brokera** (`--v4l2-rgb`); Firefox razem z 2 odbiorcami RGB i 2 IR przetestowany na Arch Linux |
+| IR | 512×424 jako natywne klatki do odbiorców brokera; osobny starszy most V4L2 `/dev/video10` pozostaje opcjonalny i nie jest częścią wspólnego brokera |
 | Depth | 512×424, float32 w mm; test 120/120 par IR+Depth, bez luk sekwencji |
 | Audio | Natywny odczyt ALSA: 4 kanały, 16 kHz, S32_LE; bez obowiązkowego downmixu |
 | Python SDK | Eksperymentalny `FrameClient` odbiera rzeczywiste klatki RGB/IR/Depth przez Unix socket i sealed memfd; wysokopoziomowe, stabilne API jeszcze nie jest wydane |
-| Wielu klientów brokera | Transport 2 × RGB + 2 × IR od jednego brokera jest scalony (PR #11), przetestowany na sprzęcie; automatyczne uruchamianie strumieni po subskrypcji jest w **Draft PR #15**, jeszcze nie w `main` |
+| Wielu klientów brokera | PR #15 i #20 są scalone: automatyczne otwieranie/zamykanie USB oraz Firefox + 2×RGB + 2×IR przez jednego brokera. Potwierdzono restart KDE i zwolnienie USB w stanie bez klientów (jeden testowany komputer) |
 | Body/Face Tracking | Eksperymenty osobno, MediaPipe wstrzymane; brak stabilnego API |
 
 Wyniki pochodzą z lokalnych testów na jednym sprzęcie, **nie** z oficjalnej certyfikacji. Szczegóły: [punkt odniesienia](docs/BASELINE-2026-10-16.md).
@@ -58,7 +58,11 @@ CMake/libusb/TurboJPEG; nie zmienia istniejącej kopii `../libfreenect2-omp`.
 **Budowa i podstawowy przechwyt na fizycznym Kinekcie zostały przetestowane
 na Arch Linux; instalator i wielodystrybucyjne testy pozostają planowane.** Szczegóły: [docs/LIBFREENECT2-OMP-SETUP.md](docs/LIBFREENECT2-OMP-SETUP.md).
 
-### IR i Depth
+### IR i Depth — starsza ścieżka legacy
+
+Dla nowych integracji preferuj brokera i odbiorców `FrameClient`.
+Poniższe komendy opisują wcześniejsze mosty i nie służą do
+równoległego uruchamiania z aktywnym brokerem.
 
 Zatrzymaj klientów RGB i inne programy otwierające fizyczny sensor przed uruchomieniem mostu IR — **jeden proces jest obecnie właścicielem USB**. Przy nieobecnym `/dev/video10` skonfiguruj `v4l2loopback` zgodnie z instrukcjami systemowymi. W pierwszym terminalu:
 
@@ -80,6 +84,10 @@ Po zakończeniu mostu (Ctrl+C) możesz wykonać test Depth:
 
 ### RGB jako kamera systemowa
 
+Dla wspólnego brokera i Firefoksa użyj [BROKER-V4L2-RGB](docs/BROKER-V4L2-RGB.md).
+Poniższa instalacja starego mostu to ścieżka legacy i nie powinna
+pracować równocześnie z nowym brokerem.
+
 Instalacja urządzenia i usług **zmienia konfigurację systemu**. Wykonuj ją świadomie (nie jest potrzebna do poleceń `status/devices/clients`). Instrukcja: [docs/RGB-ON-DEMAND.md](docs/RGB-ON-DEMAND.md). Kod uruchomieniowy: `webcam/`. Samo wykrycie `/dev/video11` nie oznacza aktualnego przesyłania klatek.
 
 ### Mikrofony
@@ -97,28 +105,33 @@ oświetleniu, natomiast w słabszym świetle automatyczna ekspozycja
 korelowała z RGB 15 FPS. W obu warunkach IR i Depth osiągały
 około 30 FPS; dane z jednego stanowiska nie są ogólną gwarancją.
 
-## Eksperymentalny podgląd wielu klientów (PR #11 scalony)
+## Wspólny broker RGB/IR/Depth — eksperymentalna konfiguracja z `main`
 
-Kod znajdujący się już w `main` potrafi dostarczać rzeczywiste klatki
-**dwóm niezależnym podglądom RGB i dwóm podglądom IR** przez jeden proces
-brokera i jeden uchwyt USB. W wersji `main` demonstracja nadal ręcznie
-uruchamia i zatrzymuje sesję przechwytywania (przełączniki
-`--allow-device-control --frame-preview`); nie ma pełnego automatycznego
-zarządzania sprzętem po odejściu ostatniego klienta.
-W [Draft PR #15](https://github.com/KacperPiotrowski/Kinect2Linux/pull/15)
-powstaje jawny tryb `--auto-streams`, sprawdzony z 4 odbiorcami
-na fizycznym sensorze. Ten PR nie jest jeszcze scalony.
-**Firefox/OBS przez istniejące `/dev/video11` i broker nie mogą obecnie
-współdzielić tego samego otwartego sensora**; integrację obsługi V4L2
-wewnątrz jednej docelowej usługi opisuje
-[issue #16](https://github.com/KacperPiotrowski/Kinect2Linux/issues/16).
-Instrukcja techniczna: [cztery okna podglądu](docs/FOUR-CLIENT-PREVIEW.md).
+Po scaleniu [PR #15](https://github.com/KacperPiotrowski/Kinect2Linux/pull/15)
+i [PR #20](https://github.com/KacperPiotrowski/Kinect2Linux/pull/20),
+broker może być jedynym właścicielem fizycznego Kinecta, uruchamiać
+strumienie na żądanie i zasilać zarówno Firefox przez `/dev/video11`,
+jak i odbiorców Python `FrameClient`. Na jednym Arch Linux/KDE
+sprawdzono działanie **Firefoksa + czterech podglądów SDK**
+oraz automatyczny start brokera po restarcie.
+
+**To nadal wersja przed wydaniem 1.0.** Instalacja wymaga jawnego
+skonfigurowania `v4l2loopback`, biblioteki `libfreenect2-omp`,
+uprawnień USB, usługi `systemd --user` i zatrzymania starego,
+odrębnego producenta RGB. Nie uruchamiaj równolegle starego mostu
+`kinect2-rgb-webcam.service` z brokerem używającym `--v4l2-rgb`.
+Procedury i rollback:
+[broker i Firefox](docs/BROKER-V4L2-RGB.md),
+[usługa użytkownika](docs/BROKER-USER-SERVICE.md),
+[cztery podglądy](docs/FOUR-CLIENT-PREVIEW.md).
+Planowany jest bezpieczny instalator; nie reklamujemy jeszcze
+instalacji „jednym kliknięciem”.
 
 ## Dokumentacja i przykłady
 
 - [Plan przebudowy](docs/REBUILD-PLAN.md) — architektura wspólnego rdzenia i IPC.
 - [Status API](docs/STATUS.md) oraz [Live Status](docs/LIVE-STATUS.md) — odczyt bez otwierania USB.
-- [RGB on-demand](docs/RGB-ON-DEMAND.md) — aktualna konfiguracja wirtualnej kamery.
+- [RGB on-demand (legacy)](docs/RGB-ON-DEMAND.md) i [wspólny broker V4L2](docs/BROKER-V4L2-RGB.md) — starszy producent RGB kontra nowy broker.
 - [Eksperymentalny Point Cloud](src/kinect2_cloud.cpp) + [przeglądarka PLY](tools/kinect2_cloud_view.py) — osobne narzędzia, poza rdzeniem SDK.
 - Narzędzia Pythona: `tools/kinect2_status.py`, `tools/audio_raw_analyze.py`, `face/preview.py`. Publiczne API Python powstanie w ramach przebudowy rdzenia.
 - [Eksperymenty Face3D, Howdy, MediaPipe](docs/EXPERIMENTS.md) — opcjonalne, nie do uwierzytelniania.
