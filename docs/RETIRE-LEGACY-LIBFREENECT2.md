@@ -80,5 +80,38 @@ pozwala to sprawdzić dla bieżącej powłoki.
 Katalog `third_party/libfreenect2-omp` jest lokalnie pobierany i
 ignorowany przez Git; nie usuwaj go zamiast starego katalogu.
 
+## Testy migracji na fizycznym sprzęcie (17 października 2026)
+
+Na Arch Linux użytkownik zmienił nazwę dawnego katalogu
+`../libfreenect2-omp` na `../libfreenect2-omp.old` (odwracalnie),
+pozostawiając `LIBFREENECT2_DIR` nieustawione. Przed próbą kompilacji
+sprawdzono `ldd` dla brokera, mostu IR, mostu RGB i Face3D: wszystkie
+wskazały nową bibliotekę w
+`Kinect2Linux/third_party/libfreenect2-omp/build-omp/lib/`.
+
+Potwierdzone testy użytkownika:
+
+- **Native IR + Depth:** `./kinect2 depth 60`: 60/60 par zgodnych
+  sekwencji i znaczników czasu, 0 luk sekwencji, 0 niepoprawnych
+  formatów i brakujących par; urządzenie prawidłowo zamknięte.
+  `ldd bin/kinect_depth_probe` wskazał nową bibliotekę.
+- **IR V4L2:** `./kinect2 run` wraz z `./kinect2 preview`: żywy
+  obraz na `/dev/video10`, potwierdzony wizualnie.
+- **RGB V4L2:** `/dev/video11` ma etykietę `Kinect v2 RGB`, usługa
+  `kinect2-rgb-webcam.service` ma stan `active`,
+  `bin/kinect_rgb_bridge --probe /dev/video11` potwierdza
+  `V4L2_EVENT_PRI_CLIENT_USAGE`, a `ffmpeg` odebrał 90 ramek
+  YUYV422 1920×1080; użytkownik potwierdził żywy obraz w Firefoxie.
+  Wartość `fps=23` w końcowej linii FFmpeg nie jest pomiarem
+  szybkości próbkowania sensora.
+
+**Zakres potwierdzenia:** migracja ścieżek, kompilacja i realne
+działanie RGB/IR/Depth na jednym komputerze. Samodzielne uruchomienie
+Face3D nie było przedmiotem testu (jego binarium kompiluje się i
+prawidłowo linkuje). Nie gwarantuje to, że żaden własny skrypt,
+zewnętrzna usługa lub program spoza repo nie korzysta z dawnego
+katalogu. Przed definitywnym skasowaniem `.old` sprawdź takie
+lokalne zależności i utrzymaj możliwość cofnięcia migracji.
+
 Zmiana nie przenosi audio ALSA ani sprzętowych uprawnień USB. Nie daje
 jeszcze gotowego instalatora ani pewności działania na każdej dystrybucji.
