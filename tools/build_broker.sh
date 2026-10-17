@@ -18,7 +18,14 @@ if [[ "$MODE" == "--with-hardware" ]]; then
 fi
 
 BUILD_DIR="$ROOT/build/broker-$PROFILE"
-LIB_DIR="$(readlink -f -- "${LIBFREENECT2_DIR:-$ROOT/../libfreenect2-omp}")"
+if [[ -n "${LIBFREENECT2_DIR:-}" ]]; then
+  LIB_SOURCE="$LIBFREENECT2_DIR"
+elif [[ -f "$ROOT/third_party/libfreenect2-omp/include/libfreenect2/libfreenect2.hpp" ]]; then
+  LIB_SOURCE="$ROOT/third_party/libfreenect2-omp"
+else
+  LIB_SOURCE="$ROOT/../libfreenect2-omp" # Existing local setup still works.
+fi
+LIB_DIR="$(readlink -f -- "$LIB_SOURCE")"
 cmake -S "$ROOT" -B "$BUILD_DIR" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_CXX_COMPILER="$CXX" \

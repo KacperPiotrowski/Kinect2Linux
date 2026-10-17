@@ -1,0 +1,32 @@
+--- a/src/cpu_depth_packet_processor.cpp
++++ b/src/cpu_depth_packet_processor.cpp
+@@ -904,16 +904,22 @@
+   // bilateral filtering
+   if(impl_->enable_bilateral_filter)
+   {
+-    float *m_filtered_ptr = (m_filtered.ptr(0, 0)->val);
+-    unsigned char *m_max_edge_test_ptr = m_max_edge_test.ptr(0, 0);
+-
++    // Read-only input m; each worker writes a separate output row.
++    // No per-pixel math or filtering thresholds are changed.
++#ifdef _OPENMP
++#pragma omp parallel for schedule(static)
++#endif
+     for(int y = 0; y < 424; ++y)
+-      for(int x = 0; x < 512; ++x, m_filtered_ptr += 9, ++m_max_edge_test_ptr)
++    {
++      float *filtered_row = m_filtered.ptr(y, 0)->val;
++      unsigned char *edge_row = m_max_edge_test.ptr(y, 0);
++      for(int x = 0; x < 512; ++x)
+       {
+         bool max_edge_test_val = true;
+-        impl_->filterPixelStage1(x, y, m, m_filtered_ptr, max_edge_test_val);
+-        *m_max_edge_test_ptr = max_edge_test_val ? 1 : 0;
+-      }
++        impl_->filterPixelStage1(x, y, m, filtered_row + 9 * x, max_edge_test_val);
++        edge_row[x] = max_edge_test_val ? 1 : 0;
++      }
++    }
+ 
+     m_ptr = (m_filtered.ptr(0, 0)->val);
+   }

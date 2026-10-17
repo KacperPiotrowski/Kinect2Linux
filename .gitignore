@@ -74,3 +74,6 @@ kinect2-sensor.lock
 .env
 .env.*
 !.env.example
+
+# Locally bootstrapped upstream source; track only the reviewed OpenMP patch.
+/third_party/libfreenect2-omp/
