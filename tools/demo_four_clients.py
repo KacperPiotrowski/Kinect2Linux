@@ -113,14 +113,18 @@ def main() -> int:
                 sys.executable, str(Path(__file__).resolve()),
                 "--viewer", stream, "--label", name,
             ], stdin=subprocess.DEVNULL))
-        print("Four independent viewers started. Press ESC/Q in a window "
-              "or Ctrl+C here to stop the demo.", flush=True)
+        print("Four independent viewers started. Close individual windows with ESC/Q; "
+              "press Ctrl+C here to stop all.", flush=True)
         print("Capture uses ONE Kinect USB owner: the broker.", flush=True)
+        exited: set[int] = set()
         while True:
             for child in children:
-                if child.poll() is not None:
-                    print(f"Viewer PID {child.pid} exited; closing demo.")
-                    return 0 if child.returncode == 0 else 1
+                if child.poll() is not None and child.pid not in exited:
+                    exited.add(child.pid)
+                    print(f"Viewer PID {child.pid} closed; remaining viewers continue.",
+                          flush=True)
+            if all(child.poll() is not None for child in children):
+                return 0 if all(child.returncode == 0 for child in children) else 1
             time.sleep(0.15)
     except KeyboardInterrupt:
         print("\nClosing four viewers and releasing Kinect...")
