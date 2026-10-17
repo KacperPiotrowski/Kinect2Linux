@@ -85,6 +85,13 @@ dopóki ktoś jest połączony.
 - Zmiana sumy strumieni wymaga zatrzymania i restartu sprzętowego
   `startStreams`. Istniejący odbiorcy mogą wtedy na krótko
   przestać dostawać klatki; gniazda pozostają otwarte.
+  **Kinect v2 może przy tym na chwilę mrugnąć kontrolką** — to efekt
+  `device->stop()` + `device->startStreams(...)`, nie celowe odłączenie
+  i ponowne otwarcie uchwytu USB. Przykład: po odłączeniu obydwu IR, gdy
+  pozostają 2 RGB, broker przechodzi z RGB+IR/Depth do samego RGB.
+  `sensor_open` nadal powinno być `True`, a RGB wznowić klatki.
+  Liczniki `frame_counts` zerują się podczas restartu strumieni,
+  więc mierz FPS dopiero po ustabilizowaniu nowego zestawu.
 - Limit ośmiu jednoczesnych subskrybentów, prywatne gniazda Unix
   tego samego UID, memfd z pełną kopią danych na ramkę.
 - Brak automatycznej migracji starej kamery V4L2 na brokera.
