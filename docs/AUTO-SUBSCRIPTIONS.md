@@ -94,8 +94,23 @@ dopóki ktoś jest połączony.
   więc mierz FPS dopiero po ustabilizowaniu nowego zestawu.
 - Limit ośmiu jednoczesnych subskrybentów, prywatne gniazda Unix
   tego samego UID, memfd z pełną kopią danych na ramkę.
-- Brak automatycznej migracji starej kamery V4L2 na brokera.
-  Mosty V4L2 są alternatywną ścieżką dostępu do USB.
+- **Firefox, OBS i inne aplikacje V4L2 jeszcze nie są klientami brokera.**
+  `/dev/video11` istnieje, kiedy działa stara usługa systemd RGB, ale
+  jej proces próbuje niezależnie otworzyć fizyczny Kinect po podłączeniu
+  odbiorcy. Jeśli broker już trzyma wspólną blokadę USB, obraz
+  `/dev/video11` może być czarny, choć Firefox widzi i udostępnia
+  kamerę. Usługa RGB powinna logować `Kinect is busy (sensor lock)`
+  i ponawiać próbę; nie może przejąć USB brokera.
+- **Jeśli potrzebujesz jednocześnie Firefox + odbiorców RGB/IR/Depth
+  brokera**, konieczny jest osobny adapter V4L2 czytający RGB jako
+  `FrameClient` z tego samego brokera. To **osobny krok**, nie jest
+  funkcjonalnością PR #15. Nie uruchamiaj drugiego właściciela USB.
+- Podczas restartu sensora, awarii lub konfliktu urządzenia `FrameClient`
+  może nie dostawać kolejnych klatek przez kilka sekund. `FrameTimeoutError`
+  (podklasa `FrameProtocolError`) oznacza **przerwę, przy której wolno
+  poczekać na następną klatkę na tym samym gnieździe**; GUI demonstracyjne
+  nie kończy już pracy tracebackiem po przekroczeniu timeoutu. Błędne
+  nagłówki lub zamknięte gniazda pozostają osobnymi, fatalnymi błędami.
 - `FrameClient` nie daje jeszcze obsługi kilku strumieni jednym
   obiektem, automatycznej rekonfiguracji przy restarcie brokera,
   pełnych statystyk per-viewer ani publicznego wersjonowanego wydania SDK.
