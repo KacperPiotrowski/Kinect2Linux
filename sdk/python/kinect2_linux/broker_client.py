@@ -78,3 +78,11 @@ class BrokerClient:
     def list_devices(self) -> dict[str, Any]:
         """Read-only USB sysfs discovery; does not open the sensor."""
         return self.request("list_devices")
+
+    def open_device(self) -> dict[str, Any]:
+        """Explicitly claim USB (only when broker is started with hardware enabled)."""
+        return self.request("open_device")
+
+    def close_device(self) -> dict[str, Any]:
+        """Release the USB handle and flock; safe to call repeatedly."""
+        return self.request("close_device")

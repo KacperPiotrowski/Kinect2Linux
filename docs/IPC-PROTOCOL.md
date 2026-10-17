@@ -1,6 +1,6 @@
 # Kinect2-Linux — lokalny protokół IPC v1
 
-**Stan:** broker C++23 obsługuje `ping`, `get_status` i odczyt obecności Kinecta przez `list_devices`. Wykrywanie używa wyłącznie sysfs; **nie otwiera USB**. Nie ma jeszcze wspólnego otwarcia USB, strumieniowania klatek ani integracji z działającymi mostami. Żaden z nich nie jest zmieniany.
+**Stan:** broker C++23 obsługuje `ping`, `get_status` i odczyt obecności Kinecta przez `list_devices`. Domyślny broker używa wyłącznie sysfs i **nie otwiera USB**. Opcjonalny broker sprzętowy obsługuje `open_device`/`close_device` z `libfreenect2` po wyraźnej zgodzie użytkownika. Nie ma jeszcze strumieniowania ani integracji z działającymi mostami. Żaden z nich nie jest zmieniany.
 
 ## Kanał sterowania (zaimplementowany)
 
@@ -24,7 +24,7 @@ Odpowiedź:
 {"protocol_version":1,"request_id":2,"ok":true,"result":{"state":"unavailable","sensor_open":false,"reason":"sensor_backend_not_implemented","usb_detection":{"source":"sysfs","scan_ok":true,"device_count":0}}}
 ```
 
-Dla `get_status` odpowiedź zawiera też pole `usb_detection` z wartościami `source: "sysfs"`, `scan_ok: bool` i `device_count: int`. Pole `state: "unavailable"` pozostaje celowo bez zmian — backend strumieniowania i otwierania USB nie jest jeszcze zaimplementowany.
+Dla `get_status` odpowiedź zawiera też pole `usb_detection` z wartościami `source: "sysfs"`, `scan_ok: bool` i `device_count: int`. Pole `state: "unavailable"` pozostaje dla domyślnego brokera. W jawnie uruchomionym wariancie sprzętowym stan może wynosić `idle` lub `open` (uchwyt USB), lecz `streaming` nadal jest `false`.
 
 Operacja `list_devices` zwraca wyłącznie wynik wykrywania obecności urządzenia:
 
@@ -44,6 +44,10 @@ Dane przykładowe powyżej **nie oznaczają**, że CI wykrył fizycznego Kinecta
 - Proces nie nadpisuje istniejącej ścieżki socketu. Przy SIGINT/SIGTERM sprząta własny socket; po SIGKILL może pozostać nieczynny plik socketu, który wymaga ręcznego sprawdzenia.
 - Ta wersja **obsługuje klientów sekwencyjnie**. Nie ma jeszcze równoczesnej transmisji klatek, zaawansowanego backpressure, kontroli sesji ani gotowego serwera produkcyjnego.
 - Broker nie potrzebuje roota. Nie uruchamiaj go z `sudo` i nie traktuj jako komponentu uwierzytelniania biometrycznego.
+
+## Opcjonalne sterowanie fizycznym uchwytem USB
+
+Operacje `open_device` i `close_device` wymagają pustego obiektu `params` i jawnej kompilacji `--with-hardware` oraz uruchomienia `--allow-device-control`. Domyślny broker zwraca błąd `device_control_disabled`; wariant sprzętowy współdzieli blokadę `kinect2-sensor.lock` z istniejącymi mostami. Nie startuje streamów. Szczegółowe ograniczenia i instrukcja testu na Arch Linux: [DEVICE-CONTROL.md](DEVICE-CONTROL.md).
 
 ## Dane sensora — odrębny kanał (plan)
 
