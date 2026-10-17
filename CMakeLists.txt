@@ -61,12 +61,16 @@ add_executable(test_device_session tests/native/test_device_session.cpp)
 target_link_libraries(test_device_session PRIVATE kinect2_session)
 add_test(NAME device_session COMMAND test_device_session)
 
+add_executable(test_sequence_gap_tracker tests/native/test_sequence_gap_tracker.cpp)
+target_include_directories(test_sequence_gap_tracker PRIVATE "${PROJECT_SOURCE_DIR}")
+add_test(NAME sequence_gap_tracker COMMAND test_sequence_gap_tracker)
+
 add_executable(test_worker_process tests/native/test_worker_process.cpp)
 target_link_libraries(test_worker_process PRIVATE kinect2_worker_supervisor)
 add_test(NAME worker_process COMMAND test_worker_process "$<TARGET_FILE:kinect2-worker>")
 
 # Existing native tests use assert() with meaningful side effects. CMake
 # Release defines NDEBUG, so explicitly keep assertions enabled in test code.
-foreach(test_target test_sensor_backend test_device_session test_worker_process)
+foreach(test_target test_sensor_backend test_device_session test_sequence_gap_tracker test_worker_process)
   target_compile_options(${test_target} PRIVATE -UNDEBUG)
 endforeach()
