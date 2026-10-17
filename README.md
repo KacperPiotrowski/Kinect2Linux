@@ -6,7 +6,15 @@ Eksperymentalny zestaw narzędzi i zalążek SDK dla Microsoft Kinect v2. Cel: *
 
 > Projekt społecznościowy, nieoficjalny; nie jest częścią Microsoft ani OpenKinect. Nie służy obecnie do bezpiecznej autoryzacji biometrycznej.
 
-## Aktualny stan — 16 października 2026
+**English:** Kinect2-Linux is an unofficial MIT-licensed Linux project for
+Microsoft Kinect v2. The working prototype provides RGB, IR, Depth and native
+4-channel ALSA access, plus an experimental C++ broker and Python frame client.
+It is **not yet a plug-and-play 1.0 release**. Contributors and hardware testers
+are welcome: [Get involved](docs/COMMUNITY.md) ·
+[Contributing](CONTRIBUTING.md) ·
+[Open issues](https://github.com/KacperPiotrowski/Kinect2Linux/issues).
+
+## Aktualny stan — 17 października 2026 (`main`)
 
 | Funkcja | Stan i ograniczenia |
 | --- | --- |
@@ -15,8 +23,8 @@ Eksperymentalny zestaw narzędzi i zalążek SDK dla Microsoft Kinect v2. Cel: *
 | IR | 512×424, `/dev/video10` przez V4L2; płynny podgląd potwierdzony przez testującego |
 | Depth | 512×424, float32 w mm; test 120/120 par IR+Depth, bez luk sekwencji |
 | Audio | Natywny odczyt ALSA: 4 kanały, 16 kHz, S32_LE; bez obowiązkowego downmixu |
-| Python | Narzędzia diagnostyczne i prototypy; docelowe wysokopoziomowe SDK Python jest planowane, jeszcze niezaimplementowane |
-| Jednoczesny dostęp przez jeden rdzeń | **Planowane**, nie zaimplementowane |
+| Python SDK | Eksperymentalny `FrameClient` odbiera rzeczywiste klatki RGB/IR/Depth przez Unix socket i sealed memfd; wysokopoziomowe, stabilne API jeszcze nie jest wydane |
+| Wielu klientów brokera | Transport 2 × RGB + 2 × IR od jednego brokera jest scalony (PR #11), przetestowany na sprzęcie; automatyczne uruchamianie strumieni po subskrypcji jest w **Draft PR #15**, jeszcze nie w `main` |
 | Body/Face Tracking | Eksperymenty osobno, MediaPipe wstrzymane; brak stabilnego API |
 
 Wyniki pochodzą z lokalnych testów na jednym sprzęcie, **nie** z oficjalnej certyfikacji. Szczegóły: [punkt odniesienia](docs/BASELINE-2026-10-16.md).
@@ -89,25 +97,32 @@ oświetleniu, natomiast w słabszym świetle automatyczna ekspozycja
 korelowała z RGB 15 FPS. W obu warunkach IR i Depth osiągały
 około 30 FPS; dane z jednego stanowiska nie są ogólną gwarancją.
 
-## Eksperymentalny podgląd wielu klientów (PR #11, jeszcze nie w main)
+## Eksperymentalny podgląd wielu klientów (PR #11 scalony)
 
-Osobna gałąź demonstracyjna pozwala zobaczyć **dwa niezależne okna RGB
-oraz dwa niezależne okna IR jednocześnie**, podczas gdy tylko broker
-otwiera fizycznego Kinecta. Wymaga ręcznego włączenia
-`--allow-device-control --frame-preview` i obsługi OpenCV GUI.
-To eksperymentalne rozsyłanie klatek, nie kompletne SDK subskrypcji,
-obsługa V4L2 ani pełne zarządzanie cyklem życia wielu klientów.
-Instrukcja: [cztery okna podglądu](docs/FOUR-CLIENT-PREVIEW.md).
+Kod znajdujący się już w `main` potrafi dostarczać rzeczywiste klatki
+**dwóm niezależnym podglądom RGB i dwóm podglądom IR** przez jeden proces
+brokera i jeden uchwyt USB. W wersji `main` demonstracja nadal ręcznie
+uruchamia i zatrzymuje sesję przechwytywania (przełączniki
+`--allow-device-control --frame-preview`); nie ma pełnego automatycznego
+zarządzania sprzętem po odejściu ostatniego klienta.
+W [Draft PR #15](https://github.com/KacperPiotrowski/Kinect2Linux/pull/15)
+powstaje jawny tryb `--auto-streams`, sprawdzony z 4 odbiorcami
+na fizycznym sensorze. Ten PR nie jest jeszcze scalony.
+**Firefox/OBS przez istniejące `/dev/video11` i broker nie mogą obecnie
+współdzielić tego samego otwartego sensora**; integrację obsługi V4L2
+wewnątrz jednej docelowej usługi opisuje
+[issue #16](https://github.com/KacperPiotrowski/Kinect2Linux/issues/16).
+Instrukcja techniczna: [cztery okna podglądu](docs/FOUR-CLIENT-PREVIEW.md).
 
 ## Dokumentacja i przykłady
 
 - [Plan przebudowy](docs/REBUILD-PLAN.md) — architektura wspólnego rdzenia i IPC.
 - [Status API](docs/STATUS.md) oraz [Live Status](docs/LIVE-STATUS.md) — odczyt bez otwierania USB.
 - [RGB on-demand](docs/RGB-ON-DEMAND.md) — aktualna konfiguracja wirtualnej kamery.
-- [Point Cloud](docs/POINT-CLOUD.md) — eksperyment z chmurą punktów (nie część głównej ścieżki).
+- [Eksperymentalny Point Cloud](src/kinect2_cloud.cpp) + [przeglądarka PLY](tools/kinect2_cloud_view.py) — osobne narzędzia, poza rdzeniem SDK.
 - Narzędzia Pythona: `tools/kinect2_status.py`, `tools/audio_raw_analyze.py`, `face/preview.py`. Publiczne API Python powstanie w ramach przebudowy rdzenia.
 - [Eksperymenty Face3D, Howdy, MediaPipe](docs/EXPERIMENTS.md) — opcjonalne, nie do uwierzytelniania.
-- [Współtworzenie](CONTRIBUTING.md), [zależności](docs/DEPENDENCIES.md), [licencje](THIRD_PARTY.md).
+- [Dołącz do projektu / Get involved](docs/COMMUNITY.md) oraz [współtworzenie](CONTRIBUTING.md), [zależności](docs/DEPENDENCIES.md), [licencje](THIRD_PARTY.md).
 - `docs/history/` zawiera **nieaktualne** instrukcje zachowane wyłącznie jako historia.
 
 ## Testy bez urządzenia
