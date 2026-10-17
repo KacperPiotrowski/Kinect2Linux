@@ -1,5 +1,6 @@
 // Kinect2-Linux experimental LOCAL control broker.
-// Does not open Kinect/USB, V4L2, ALSA, or start any device service.
+// USB can only be opened with an explicitly enabled, hardware-linked build.
+// No streaming, V4L2 or ALSA code is run.
 #include <arpa/inet.h>
 #include <cerrno>
 #include <csignal>
@@ -9,6 +10,8 @@
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include "core/sensor_backend.hpp"
+#include "core/device_session.hpp"
+#include <memory>
 #include <vector>
 #include <stdexcept>
 #include <string>
@@ -92,7 +95,8 @@ void send_json(int fd, const std::string& body) {
   }
 }
 
-void handle_client(int fd, const kinect2::SensorBackend& backend) {
+void handle_client(int fd, const kinect2::SensorBackend& backend,
+                   kinect2::DeviceSession* device_session) {
   struct ucred peer {};
   socklen_t size = sizeof(peer);
   if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &peer, &size) != 0 ||
@@ -129,16 +133,43 @@ void handle_client(int fd, const kinect2::SensorBackend& backend) {
     response["ok"] = true;
     response["result"] = {{"pong", true}};
   } else if (op == "get_status") {
-    // Presence in sysfs is NOT proof of stream health, USB ownership or readiness.
+    // "open" describes an acquired handle, NOT an active or healthy stream.
     const auto discovery = backend.discover();
+    const bool opened = device_session && device_session->is_open();
     response["ok"] = true;
-    response["result"] = {{"state", "unavailable"},
-                          {"sensor_open", false},
-                          {"reason", "sensor_backend_not_implemented"},
+    response["result"] = {{"state", !device_session ? "unavailable" :
+                                             (opened ? "open" : "idle")},
+                          {"sensor_open", opened},
+                          {"streaming", false},
+                          {"device_control_enabled", device_session != nullptr},
+                          {"reason", !device_session ? "sensor_backend_not_implemented" :
+                                              "streams_not_implemented"},
                           {"usb_detection", {
                             {"source", "sysfs"},
                             {"scan_ok", discovery.scan_ok},
                             {"device_count", discovery.devices.size()}}}};
+  } else if (op == "open_device" || op == "close_device") {
+    if (!request["params"].empty()) {
+      response["ok"] = false;
+      response["error"] = {{"code", "invalid_arguments"}};
+    } else if (!device_session) {
+      response["ok"] = false;
+      response["error"] = {{"code", "device_control_disabled"}};
+    } else if (op == "open_device") {
+      const auto result = device_session->open();
+      response["ok"] = result.ok;
+      if (result.ok) {
+        response["result"] = {{"state", "open"}, {"sensor_open", true},
+                              {"streaming", false}};
+      } else {
+        response["error"] = {{"code", result.code}};
+      }
+    } else {
+      device_session->close(); // Idempotent; safe even after failed open.
+      response["ok"] = true;
+      response["result"] = {{"state", "idle"}, {"sensor_open", false},
+                            {"streaming", false}};
+    }
   } else if (op == "list_devices") {
     // Identification metadata only. Do not include serials or claim the USB interface.
     const auto discovery = backend.discover();
@@ -174,15 +205,40 @@ bool valid_private_parent(const std::string& path) {
 
 int main(int argc, char** argv) {
   std::string path;
+  bool allow_device_control = false;
   if (argc == 2 && std::string_view(argv[1]) == "--help") {
-    std::cout << "Usage: kinect2-broker [--socket /absolute/private/dir/kinect2.sock]\n";
+    std::cout << "Usage: kinect2-broker [--socket PATH] [--allow-device-control]\n"
+                 "Device control requires a separate --with-hardware build.\n";
     return 0;
   }
-  if (argc == 3 && std::string_view(argv[1]) == "--socket") path = argv[2];
-  else if (argc == 1) {
-    const char* dir = getenv("XDG_RUNTIME_DIR");
-    if (dir) path = std::string(dir) + "/kinect2-broker.sock";
-  } else { std::cerr << "Usage: kinect2-broker [--socket PATH]\n"; return 2; }
+  for (int i = 1; i < argc; ++i) {
+    const std::string_view arg(argv[i]);
+    if (arg == "--socket" && i + 1 < argc && path.empty()) path = argv[++i];
+    else if (arg == "--allow-device-control" && !allow_device_control)
+      allow_device_control = true;
+    else {
+      std::cerr << "Usage: kinect2-broker [--socket PATH] [--allow-device-control]\n";
+      return 2;
+    }
+  }
+  const char* runtime_dir = getenv("XDG_RUNTIME_DIR");
+  if (path.empty() && runtime_dir)
+    path = std::string(runtime_dir) + "/kinect2-broker.sock";
+
+  std::unique_ptr<kinect2::DeviceSession> device_session;
+  if (allow_device_control) {
+    auto hardware = kinect2::make_hardware_device();
+    if (!hardware) {
+      std::cerr << "Hardware support is not compiled in. Rebuild with --with-hardware.\n";
+      return 2;
+    }
+    if (!runtime_dir || !*runtime_dir) {
+      std::cerr << "XDG_RUNTIME_DIR is required for the shared sensor lock.\n";
+      return 2;
+    }
+    device_session = std::make_unique<kinect2::DeviceSession>(
+        std::move(hardware), std::string(runtime_dir) + "/kinect2-sensor.lock");
+  }
   if (!valid_private_parent(path)) {
     std::cerr << "Socket path requires a private 0700 directory owned by current user.\n";
     return 2;
@@ -220,16 +276,19 @@ int main(int argc, char** argv) {
   }
   kinect2::SysfsSensorBackend sensor_backend;
   std::cout << "Kinect2 broker control socket ready: " << path
-            << " (read-only sysfs discovery; USB backend not implemented)\n" << std::flush;
+            << (device_session ? " (hardware control enabled; streams disabled)\n" :
+                                  " (read-only sysfs discovery; hardware control disabled)\n")
+            << std::flush;
   while (running) {
     const int client = accept4(server, nullptr, nullptr, SOCK_CLOEXEC);
     if (client < 0) {
       if (errno == EINTR) continue;
       perror("accept"); break;
     }
-    handle_client(client, sensor_backend);
+    handle_client(client, sensor_backend, device_session.get());
     close(client);
   }
+  device_session.reset(); // Always release USB handle and flock before exit.
   close(server);
   // Avoid removing a path that was replaced while the server was running.
   struct stat current {};
