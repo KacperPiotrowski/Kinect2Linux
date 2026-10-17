@@ -41,9 +41,11 @@ ControlResult DeviceSession::open() {
                     O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
   if (lock_fd_ < 0) return {false, "lock_error"};
 
+  // Legacy CLI `flock -F` may create a 0644 file under a private 0700 dir.
+  // Refuse other-user write access, but allow that cooperative lock format.
   struct stat file {};
   if (fstat(lock_fd_, &file) != 0 || !S_ISREG(file.st_mode) ||
-      file.st_uid != geteuid() || (file.st_mode & 0077) != 0 ||
+      file.st_uid != geteuid() || (file.st_mode & 0022) != 0 ||
       file.st_nlink != 1) {
     release_lock();
     return {false, "unsafe_lock_path"};
