@@ -109,7 +109,18 @@ def main() -> int:
         return 0
 
     broker = BrokerClient(timeout=20)
-    status = broker.get_status()
+    try:
+        status = broker.get_status()
+    except BrokerError as exc:
+        raise SystemExit(
+            "Nie można połączyć się z brokerem Kinect2.\n"
+            f"Oczekiwane gniazdo: {broker.socket_path}\n"
+            "Uruchom brokera w osobnym terminalu i zostaw go włączonego:\n"
+            "  ./bin/kinect2-broker-hw --allow-device-control --frame-preview "
+            '--worker "$PWD/bin/kinect2-worker"\n'
+            "Potem ponownie uruchom: python3 tools/demo_four_clients.py\n"
+            f"Szczegóły: {exc}"
+        ) from None
     if not status.get("frame_preview", {}).get("enabled"):
         raise SystemExit(
             "Broker requires hardware mode and --frame-preview:\n"
