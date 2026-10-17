@@ -12,6 +12,7 @@
 #include <memory>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace {
 
