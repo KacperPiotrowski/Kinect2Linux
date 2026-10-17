@@ -39,6 +39,8 @@ if [[ "$1" == --user && "$2" == is-active ]]; then
   else
     echo "${MOCK_BROKER_ACTIVE:-inactive}"
   fi
+elif [[ "$1" == --user && "$2" == show-environment ]]; then
+  [[ "${MOCK_USER_BUS_FAIL:-0}" != 1 ]]
 elif [[ "$1" == --user && "$2" == is-enabled ]]; then
   if [[ "$3" == kinect2-rgb-webcam.service ]]; then
     echo "${MOCK_LEGACY_ENABLED:-disabled}"
@@ -62,7 +64,14 @@ fi
     def managed(self):
         unit = self.home / ".config/systemd/user/kinect2-broker.service"
         unit.parent.mkdir(parents=True, exist_ok=True)
-        unit.write_text("# Managed by Kinect2-Linux broker installer.\n")
+        unit.write_text(
+            "# Managed by Kinect2-Linux broker installer.\n"
+            "ExecStart=/usr/bin/bash %h/.local/bin/kinect2-broker-run\n"
+        )
+        launcher = self.home / ".local/bin/kinect2-broker-run"
+        launcher.parent.mkdir(parents=True, exist_ok=True)
+        launcher.symlink_to(self.repo / "tools/run_broker_service.sh")
+        (self.repo / "tools/run_broker_service.sh").write_text("#!/bin/sh\n")
         binpath = self.repo / "bin/kinect2-broker-hw"
         binpath.write_text("#!/bin/sh\nexit 0\n")
         binpath.chmod(0o755)
@@ -120,6 +129,30 @@ fi
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Refusing to overwrite", result.stderr)
         self.assertIn("FOREIGN=1", drop.read_text())
+        self.assertFalse(self.log.exists())
+
+    def test_activate_fails_without_systemd_user_manager(self):
+        self.managed()
+        result = self.call("--activate", MOCK_USER_BUS_FAIL="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("user manager unavailable", result.stderr)
+        self.assertFalse(self.log.exists())
+
+    def test_activate_rejects_foreign_launcher_or_execstart(self):
+        self.managed()
+        launcher = self.home / ".local/bin/kinect2-broker-run"
+        launcher.unlink()
+        launcher.symlink_to("/usr/bin/true")
+        result = self.call("--activate")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("launcher", result.stderr)
+        launcher.unlink()
+        launcher.symlink_to(self.repo / "tools/run_broker_service.sh")
+        unit = self.home / ".config/systemd/user/kinect2-broker.service"
+        unit.write_text("# Managed by Kinect2-Linux broker installer.\\nExecStart=/usr/bin/true\\n")
+        result = self.call("--activate")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ExecStart", result.stderr)
         self.assertFalse(self.log.exists())
 
     def test_activate_requires_explicit_opt_in(self):
