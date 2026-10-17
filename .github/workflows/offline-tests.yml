@@ -19,7 +19,7 @@ jobs:
       - name: Install offline test dependencies
         run: python -m pip install -r requirements-test.txt
       - name: Install C++ JSON development headers
-        run: sudo apt-get update -qq && sudo apt-get install -y nlohmann-json3-dev
+        run: sudo apt-get update -qq && sudo apt-get install -y nlohmann-json3-dev cmake ninja-build
       - name: Build C++ control broker (no Kinect hardware)
         run: bash tools/build_broker.sh
       - name: Native SensorBackend tests (mock sysfs, no Kinect)
@@ -28,9 +28,12 @@ jobs:
         run: ./bin/test_device_session
       - name: Native RGB sequence gap tracker tests
         run: ./bin/test_sequence_gap_tracker
+      - name: Native supervised worker lifecycle tests
+        run: ./bin/test_worker_process "$PWD/bin/kinect2-worker"
       - name: Python unit tests and C++ broker IPC integration
         env:
           KINECT2_BROKER_BIN: ${{ github.workspace }}/bin/kinect2-broker
+          KINECT2_WORKER_BIN: ${{ github.workspace }}/bin/kinect2-worker
         run: python -m unittest discover -s tests -v
       - name: Bash syntax
         run: bash -n kinect2 face3d webcam/*.sh tools/build_broker.sh
