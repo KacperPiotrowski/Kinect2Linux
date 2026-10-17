@@ -74,3 +74,7 @@ class BrokerClient:
 
     def get_status(self) -> dict[str, Any]:
         return self.request("get_status")
+
+    def list_devices(self) -> dict[str, Any]:
+        """Read-only USB sysfs discovery; does not open the sensor."""
+        return self.request("list_devices")

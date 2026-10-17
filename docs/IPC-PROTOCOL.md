@@ -1,6 +1,6 @@
 # Kinect2-Linux — lokalny protokół IPC v1
 
-**Stan:** implementacja pierwszego brokera C++ **bez dostępu do urządzenia** oraz klienta Pythona obsługującego wyłącznie `ping` i `get_status`. Nie ma jeszcze wspólnego otwarcia USB, strumieniowania klatek ani integracji z działającymi mostami. Żaden z nich nie jest zmieniany.
+**Stan:** broker C++23 obsługuje `ping`, `get_status` i odczyt obecności Kinecta przez `list_devices`. Wykrywanie używa wyłącznie sysfs; **nie otwiera USB**. Nie ma jeszcze wspólnego otwarcia USB, strumieniowania klatek ani integracji z działającymi mostami. Żaden z nich nie jest zmieniany.
 
 ## Kanał sterowania (zaimplementowany)
 
@@ -21,8 +21,18 @@ Odpowiedź:
 `get_status` zwraca obecnie:
 
 ```json
-{"protocol_version":1,"request_id":2,"ok":true,"result":{"state":"unavailable","sensor_open":false,"reason":"sensor_backend_not_implemented"}}
+{"protocol_version":1,"request_id":2,"ok":true,"result":{"state":"unavailable","sensor_open":false,"reason":"sensor_backend_not_implemented","usb_detection":{"source":"sysfs","scan_ok":true,"device_count":0}}}
 ```
+
+Dla `get_status` odpowiedź zawiera też pole `usb_detection` z wartościami `source: "sysfs"`, `scan_ok: bool` i `device_count: int`. Pole `state: "unavailable"` pozostaje celowo bez zmian — backend strumieniowania i otwierania USB nie jest jeszcze zaimplementowany.
+
+Operacja `list_devices` zwraca wyłącznie wynik wykrywania obecności urządzenia:
+
+```json
+{"protocol_version":1,"request_id":3,"ok":true,"result":{"source":"sysfs","scan_ok":true,"devices":[{"sysfs_name":"1-2","vendor_id":"045e","product_id":"02c4"}]}}
+```
+
+Dane przykładowe powyżej **nie oznaczają**, że CI wykrył fizycznego Kinecta. `devices: []` jest prawidłową odpowiedzią, jeżeli sprzęt nie jest podłączony; `scan_ok: false` sygnalizuje niemożność przeglądania katalogu sysfs i **nie może** być interpretowane jako brak urządzeń. Lista odświeża się przy każdym zapytaniu (najprostsza obsługa hotplug). Nazwa sysfs to lokalizacja urządzenia w USB, **bez numeru seryjnego**, adresu pamięci ani danych biometrycznych.
 
 **To status prototypu brokera, nie fizycznego Kinecta.** Nieznana operacja daje `ok: false` i `error.code: "unknown_operation"`. Uszkodzona ramka, niepoprawne UTF-8/JSON, duplikaty kluczy, `NaN`/`Infinity`, zła wersja lub błędne typy są odrzucane przez zamknięcie połączenia bez odpowiedzi. Jedno żądanie przypada na jedno połączenie.
 
@@ -48,6 +58,17 @@ JSON służy **tylko** do sterowania i metadanych, nie do transportu obrazu lub 
 
 Docelowe metadane będą zawierać format, stride, numer sekwencji, znacznik czasu sensora (jednostka i źródło) i czas hosta. Równoczesne RGB/IR/Depth wymaga dopiero rzeczywistego brokera USB.
 
+## Testowanie wykrywania bez sprzętu
+
+Warstwa `core/sensor_backend.hpp` definiuje testowalny interfejs `SensorBackend::discover()`, a `SysfsSensorBackend` czyta tylko `/sys/bus/usb/devices/*/{idVendor,idProduct}` (dokładne dopasowanie `045e:02c4`). Nie korzysta z `libfreenect2`, nie otwiera urządzeń ani nie przejmuje już działających usług. Atrapy odczytu i scenariusze odłączania USB są testowane natywnie z tymczasowym katalogiem sysfs.
+
+```bash
+bash tools/build_broker.sh
+./bin/test_sensor_backend
+```
+
+Te testy i testy Python ↔ C++ uruchamiają się w GitHub Actions bez Kinecta. **Potwierdzenie poprawności wykrywania na fizycznym sprzęcie nadal wymaga testu na Arch Linux**.
+
 ## Kompilacja i uruchomienie bez Kinecta
 
 Wymagany jest kompilator obsługujący **C++23** oraz systemowy pakiet nagłówkowy **nlohmann/json** (nie kopiujemy kodu zależności do repozytorium). Przykładowa instalacja na Arch Linux: `sudo pacman -S --needed gcc nlohmann-json`; na Ubuntu: `sudo apt-get install g++ nlohmann-json3-dev`. GitHub Actions instaluje zależność przed kompilacją.
@@ -58,7 +79,7 @@ C++ korzysta z `nlohmann/json` do parsowania i tworzenia komunikatów. Callback 
 bash tools/build_broker.sh
 ./bin/kinect2-broker
 # W drugim terminalu:
-PYTHONPATH=sdk/python python3 -c 'from kinect2_linux import BrokerClient; c=BrokerClient(); print(c.ping(), c.get_status())'
+PYTHONPATH=sdk/python python3 -c 'from kinect2_linux import BrokerClient; c=BrokerClient(); print(c.ping(), c.get_status(), c.list_devices())'
 ```
 
 `XDG_RUNTIME_DIR` powinien wskazywać prywatny katalog; w przeciwnym razie ustaw własną ścieżkę w `--socket` i `BrokerClient(socket_path=...)`. `Ctrl+C` kończy serwer. Testy integracyjne uruchamiają się offline poprzez `KINECT2_BROKER_BIN="$PWD/bin/kinect2-broker" python3 -m unittest discover -s tests -v`.

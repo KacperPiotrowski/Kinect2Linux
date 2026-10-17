@@ -8,6 +8,7 @@
 #include <cstring>
 #include <iostream>
 #include <nlohmann/json.hpp>
+#include "core/sensor_backend.hpp"
 #include <vector>
 #include <stdexcept>
 #include <string>
@@ -91,7 +92,7 @@ void send_json(int fd, const std::string& body) {
   }
 }
 
-void handle_client(int fd) {
+void handle_client(int fd, const kinect2::SensorBackend& backend) {
   struct ucred peer {};
   socklen_t size = sizeof(peer);
   if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &peer, &size) != 0 ||
@@ -128,11 +129,27 @@ void handle_client(int fd) {
     response["ok"] = true;
     response["result"] = {{"pong", true}};
   } else if (op == "get_status") {
-    // No USB access is implemented in this control-only prototype.
+    // Presence in sysfs is NOT proof of stream health, USB ownership or readiness.
+    const auto discovery = backend.discover();
     response["ok"] = true;
     response["result"] = {{"state", "unavailable"},
                           {"sensor_open", false},
-                          {"reason", "sensor_backend_not_implemented"}};
+                          {"reason", "sensor_backend_not_implemented"},
+                          {"usb_detection", {
+                            {"source", "sysfs"},
+                            {"scan_ok", discovery.scan_ok},
+                            {"device_count", discovery.devices.size()}}}};
+  } else if (op == "list_devices") {
+    // Identification metadata only. Do not include serials or claim the USB interface.
+    const auto discovery = backend.discover();
+    json devices = json::array();
+    for (const auto& device : discovery.devices) {
+      devices.push_back({{"sysfs_name", device.sysfs_name},
+                         {"vendor_id", "045e"}, {"product_id", "02c4"}});
+    }
+    response["ok"] = true;
+    response["result"] = {{"source", "sysfs"}, {"scan_ok", discovery.scan_ok},
+                          {"devices", std::move(devices)}};
   } else {
     response["ok"] = false;
     response["error"] = {{"code", "unknown_operation"},
@@ -201,15 +218,16 @@ int main(int argc, char** argv) {
     std::cerr << "Unsafe socket permissions.\n";
     close(server); unlink(path.c_str()); return 1;
   }
+  kinect2::SysfsSensorBackend sensor_backend;
   std::cout << "Kinect2 broker control socket ready: " << path
-            << " (no sensor backend)\n" << std::flush;
+            << " (read-only sysfs discovery; USB backend not implemented)\n" << std::flush;
   while (running) {
     const int client = accept4(server, nullptr, nullptr, SOCK_CLOEXEC);
     if (client < 0) {
       if (errno == EINTR) continue;
       perror("accept"); break;
     }
-    handle_client(client);
+    handle_client(client, sensor_backend);
     close(client);
   }
   close(server);
