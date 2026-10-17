@@ -22,6 +22,23 @@ from kinect2_linux import BrokerClient, BrokerError  # noqa: E402
 from kinect2_linux.frame_client import FrameClient  # noqa: E402
 
 
+def window_is_open(cv2, label: str) -> bool:
+    """OpenCV's imshow() recreates X-closed windows unless we check first."""
+    try:
+        return cv2.getWindowProperty(label, cv2.WND_PROP_VISIBLE) > 0
+    except cv2.error:
+        # HighGUI can throw after the window has been destroyed.
+        return False
+
+
+def show_if_open(cv2, label: str, image: object) -> bool:
+    """Do not recreate a window closed with the titlebar X."""
+    if not window_is_open(cv2, label):
+        return False
+    cv2.imshow(label, image)
+    return True
+
+
 def viewer(stream: str, label: str) -> None:
     try:
         import cv2
@@ -39,6 +56,11 @@ def viewer(stream: str, label: str) -> None:
     with FrameClient(stream, timeout=10) as client:
         try:
             while True:
+                # Process pending native window-close events *before* the next
+                # imshow(), otherwise HighGUI silently recreates a closed X window.
+                key = cv2.waitKey(1) & 0xFF
+                if key in (27, ord("q")) or not window_is_open(cv2, label):
+                    break
                 with client.receive() as frame:
                     if stream == "rgb":
                         # libfreenect2 CPU color output is 4 bytes per pixel.
@@ -64,8 +86,12 @@ def viewer(stream: str, label: str) -> None:
                             (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
                             (255, 255, 255) if stream == "rgb" else 255,
                             2, cv2.LINE_AA)
-                cv2.imshow(label, image)
-                if cv2.waitKey(1) & 0xFF in (27, ord("q")):
+                # A close event may also arrive while waiting for a frame.
+                cv2.waitKey(1)
+                if not show_if_open(cv2, label, image):
+                    break
+                key = cv2.waitKey(1) & 0xFF
+                if key in (27, ord("q")) or not window_is_open(cv2, label):
                     break
         finally:
             cv2.destroyAllWindows()
