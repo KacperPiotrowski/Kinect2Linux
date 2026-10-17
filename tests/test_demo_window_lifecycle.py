@@ -107,7 +107,7 @@ class DemoWindowLifecycleTests(unittest.TestCase):
                 return 0
 
         with patch.object(demo, "BrokerClient", FakeBroker), \
-             patch.object(demo.subprocess, "Popen", FakeChild) as spawned, \
+             patch.object(demo.subprocess, "Popen", side_effect=FakeChild) as spawned, \
              patch.object(sys, "argv", ["demo_four_clients.py"]):
             self.assertEqual(demo.main(), 0)
         self.assertEqual(spawned.call_count, 4)
