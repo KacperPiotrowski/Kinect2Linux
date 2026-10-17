@@ -1,6 +1,7 @@
 // Kinect2-Linux experimental LOCAL control broker.
 // USB can only be opened with an explicitly enabled, hardware-linked build.
-// No streaming, V4L2 or ALSA code is run.
+// Selected native streams can run only in explicit hardware mode.
+// Frames are counted in-process; no frame data, V4L2 or ALSA in this PR.
 #include <arpa/inet.h>
 #include <cerrno>
 #include <csignal>
@@ -136,18 +137,60 @@ void handle_client(int fd, const kinect2::SensorBackend& backend,
     // "open" describes an acquired handle, NOT an active or healthy stream.
     const auto discovery = backend.discover();
     const bool opened = device_session && device_session->is_open();
+    const bool streaming = device_session && device_session->is_streaming();
+    const auto selected = device_session ? device_session->selection() :
+                                           kinect2::StreamSelection{};
+    const auto counters = device_session ? device_session->counters() :
+                                           kinect2::StreamCounters{};
     response["ok"] = true;
-    response["result"] = {{"state", !device_session ? "unavailable" :
-                                             (opened ? "open" : "idle")},
-                          {"sensor_open", opened},
-                          {"streaming", false},
-                          {"device_control_enabled", device_session != nullptr},
-                          {"reason", !device_session ? "sensor_backend_not_implemented" :
-                                              "streams_not_implemented"},
-                          {"usb_detection", {
-                            {"source", "sysfs"},
-                            {"scan_ok", discovery.scan_ok},
-                            {"device_count", discovery.devices.size()}}}};
+    response["result"] = {
+      {"state", !device_session ? "unavailable" :
+                        (streaming ? "streaming" : (opened ? "open" : "idle"))},
+      {"sensor_open", opened},
+      {"streaming", streaming}, // active capture configuration, not health proof
+      {"device_control_enabled", device_session != nullptr},
+      {"reason", !device_session ? "sensor_backend_not_implemented" :
+                                    "frame_transport_not_implemented"},
+      {"selected", {{"rgb", selected.rgb}, {"ir_depth", selected.ir_depth}}},
+      {"frame_counts", {{"rgb", counters.rgb_frames},
+                        {"ir", counters.ir_frames},
+                        {"depth", counters.depth_frames}}},
+      {"usb_detection", {{"source", "sysfs"},
+                         {"scan_ok", discovery.scan_ok},
+                         {"device_count", discovery.devices.size()}}}
+    };
+  } else if (op == "start_streams" || op == "stop_streams") {
+    const auto& params = request["params"];
+    if (!device_session) {
+      response["ok"] = false;
+      response["error"] = {{"code", "device_control_disabled"}};
+    } else if (op == "start_streams") {
+      if (params.size() != 2 || !params.contains("rgb") ||
+          !params.contains("ir_depth") || !params["rgb"].is_boolean() ||
+          !params["ir_depth"].is_boolean()) {
+        response["ok"] = false;
+        response["error"] = {{"code", "invalid_arguments"}};
+      } else {
+        const kinect2::StreamSelection selected{
+          params["rgb"].get<bool>(), params["ir_depth"].get<bool>()};
+        const auto result = device_session->start_streams(selected);
+        response["ok"] = result.ok;
+        if (result.ok) {
+          response["result"] = {{"state", "streaming"}, {"streaming", true},
+                                {"selected", {{"rgb", selected.rgb},
+                                              {"ir_depth", selected.ir_depth}}}};
+        } else {
+          response["error"] = {{"code", result.code}};
+        }
+      }
+    } else if (!params.empty()) {
+      response["ok"] = false;
+      response["error"] = {{"code", "invalid_arguments"}};
+    } else {
+      device_session->stop_streams();
+      response["ok"] = true;
+      response["result"] = {{"streaming", false}};
+    }
   } else if (op == "open_device" || op == "close_device") {
     if (!request["params"].empty()) {
       response["ok"] = false;
@@ -276,7 +319,7 @@ int main(int argc, char** argv) {
   }
   kinect2::SysfsSensorBackend sensor_backend;
   std::cout << "Kinect2 broker control socket ready: " << path
-            << (device_session ? " (hardware control enabled; streams disabled)\n" :
+            << (device_session ? " (hardware control enabled; capture opt-in)\n" :
                                   " (read-only sysfs discovery; hardware control disabled)\n")
             << std::flush;
   while (running) {

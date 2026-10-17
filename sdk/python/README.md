@@ -1,6 +1,6 @@
 # Python SDK — prototyp kontrolny
 
-**To jeszcze nie jest API do pobierania klatek.** Domyślny broker obsługuje jedynie `ping()`, `get_status()` i `list_devices()` oraz nie otwiera USB. Eksperymentalne `open_device()` / `close_device()` działają wyłącznie z osobno skompilowanym i jawnie uruchomionym wariantem sprzętowym.
+**To jeszcze nie jest API do pobierania klatek.** Domyślny broker obsługuje jedynie `ping()`, `get_status()` i `list_devices()` oraz nie otwiera USB. Eksperymentalne `open_device()` / `close_device()` oraz `start_streams(rgb=..., ir_depth=...)` / `stop_streams()` działają wyłącznie z osobno skompilowanym i jawnie uruchomionym wariantem sprzętowym.
 
 Z głównego katalogu repozytorium:
 
@@ -29,3 +29,5 @@ Dostępna jest opcja `BrokerClient(socket_path="/private/path/kinect2-broker.soc
 Protokół, uprawnienia i ograniczenia prototypu: [docs/IPC-PROTOCOL.md](../../docs/IPC-PROTOCOL.md). `libfreenect2`, NumPy ani fizyczny Kinect nie są potrzebne do testów komunikacji. API `with Kinect()` i przesyłanie klatek dopiero planujemy.
 
 **Ręczny test sprzętowy i procedura wycofania:** [DEVICE-CONTROL.md](../../docs/DEVICE-CONTROL.md). Przy poprawnym otwarciu Kinecta stan `open` oznacza wyłącznie uchwyt urządzenia, nie działające strumienie.
+
+**Selektywny capture (bez obrazów w Pythonie):** [STREAM-CAPTURE.md](../../docs/STREAM-CAPTURE.md). `get_status().frame_counts` wskazuje liczby odebranych ramek RGB, IR i Depth. Audio pozostaje niezależne przez ALSA/PipeWire.

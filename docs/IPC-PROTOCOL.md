@@ -1,6 +1,6 @@
 # Kinect2-Linux — lokalny protokół IPC v1
 
-**Stan:** broker C++23 obsługuje `ping`, `get_status` i odczyt obecności Kinecta przez `list_devices`. Domyślny broker używa wyłącznie sysfs i **nie otwiera USB**. Opcjonalny broker sprzętowy obsługuje `open_device`/`close_device` z `libfreenect2` po wyraźnej zgodzie użytkownika. Nie ma jeszcze strumieniowania ani integracji z działającymi mostami. Żaden z nich nie jest zmieniany.
+**Stan:** broker C++23 obsługuje `ping`, `get_status` i odczyt obecności Kinecta przez `list_devices`. Domyślny broker używa wyłącznie sysfs i **nie otwiera USB**. Opcjonalny broker sprzętowy obsługuje `open_device`/`close_device` z `libfreenect2` po wyraźnej zgodzie użytkownika. Natywne strumienie mogą być uruchomione tylko jawnie w wariancie sprzętowym, ale nie ma jeszcze **transportu danych klatek do klientów** ani integracji z działającymi mostami. Żaden z nich nie jest zmieniany.
 
 ## Kanał sterowania (zaimplementowany)
 
@@ -24,7 +24,7 @@ Odpowiedź:
 {"protocol_version":1,"request_id":2,"ok":true,"result":{"state":"unavailable","sensor_open":false,"reason":"sensor_backend_not_implemented","usb_detection":{"source":"sysfs","scan_ok":true,"device_count":0}}}
 ```
 
-Dla `get_status` odpowiedź zawiera też pole `usb_detection` z wartościami `source: "sysfs"`, `scan_ok: bool` i `device_count: int`. Pole `state: "unavailable"` pozostaje dla domyślnego brokera. W jawnie uruchomionym wariancie sprzętowym stan może wynosić `idle` lub `open` (uchwyt USB), lecz `streaming` nadal jest `false`.
+Dla `get_status` odpowiedź zawiera też pole `usb_detection` z wartościami `source: "sysfs"`, `scan_ok: bool` i `device_count: int`. Pole `state: "unavailable"` pozostaje dla domyślnego brokera. W jawnie uruchomionym wariancie sprzętowym stan może wynosić `idle`, `open` (sam uchwyt USB) lub `streaming` (przechwytywanie native). Sam stan `streaming` nie potwierdza otrzymywania ramek — sprawdzaj `frame_counts`.
 
 Operacja `list_devices` zwraca wyłącznie wynik wykrywania obecności urządzenia:
 
@@ -48,6 +48,10 @@ Dane przykładowe powyżej **nie oznaczają**, że CI wykrył fizycznego Kinecta
 ## Opcjonalne sterowanie fizycznym uchwytem USB
 
 Operacje `open_device` i `close_device` wymagają pustego obiektu `params` i jawnej kompilacji `--with-hardware` oraz uruchomienia `--allow-device-control`. Domyślny broker zwraca błąd `device_control_disabled`; wariant sprzętowy współdzieli blokadę `kinect2-sensor.lock` z istniejącymi mostami. Nie startuje streamów. Szczegółowe ograniczenia i instrukcja testu na Arch Linux: [DEVICE-CONTROL.md](DEVICE-CONTROL.md).
+
+## Selektywne przechwytywanie (PR #8)
+
+`start_streams` wymaga dokładnie `params: {"rgb": bool, "ir_depth": bool}` z przynajmniej jedną wartością `true`, otwartego uchwytu USB oraz jawnego trybu sprzętowego. `stop_streams` wymaga `{}`. Status podaje `selected: {rgb, ir_depth}` i `frame_counts: {rgb, ir, depth}`; liczniki oznaczają odebrane ramki, **nie** dostęp do surowych danych po IPC. IR+Depth to wspólna grupa libfreenect2; przyszli klienci dostaną osobne subskrypcje logiczne. Brak transportu klatek, gwarancji FPS i sprawdzenia jednoczesnego RGB+Depth na fizycznym Kinekcie. Instrukcja testu: [STREAM-CAPTURE.md](STREAM-CAPTURE.md).
 
 ## Dane sensora — odrębny kanał (plan)
 

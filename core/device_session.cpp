@@ -72,9 +72,41 @@ ControlResult DeviceSession::open() {
   return {true, ""};
 }
 
+ControlResult DeviceSession::start_streams(StreamSelection streams) {
+  if (!open_) return {false, "device_not_open"};
+  if (streaming_) return {false, "already_streaming"};
+  if (!streams.rgb && !streams.ir_depth) return {false, "no_stream_selected"};
+  ControlResult result{false, "start_failed"};
+  try {
+    result = device_->start_streams(streams);
+  } catch (...) {
+    result = {false, "start_failed"};
+  }
+  if (!result.ok) {
+    // Roll back potentially partial initialization without releasing USB.
+    device_->stop_streams();
+    return result;
+  }
+  selection_ = streams;
+  streaming_ = true;
+  return {true, ""};
+}
+
+void DeviceSession::stop_streams() noexcept {
+  if (streaming_ && device_) device_->stop_streams();
+  streaming_ = false;
+  selection_ = {};
+}
+
+StreamCounters DeviceSession::counters() const noexcept {
+  if (!open_ || !device_) return {};
+  return device_->counters();
+}
+
 void DeviceSession::close() noexcept {
   // Releasing the physical handle must precede unlocking, or an old bridge
   // could acquire the lock while libfreenect2 is still closing.
+  stop_streams(); // Must join capture workers and stop streams before close.
   if (open_ && device_) device_->close();
   open_ = false;
   release_lock();

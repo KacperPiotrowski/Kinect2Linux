@@ -26,16 +26,37 @@ struct TempDir {
 
 struct FakeHardware final : kinect2::HardwareDevice {
   bool fail = false;
+  bool fail_start = false;
   bool handle_open = false;
+  bool started = false;
   int opened = 0;
   int closed = 0;
+  int start_calls = 0;
+  int stop_calls = 0;
+  kinect2::StreamSelection selected{};
   kinect2::ControlResult open() override {
     ++opened;
     if (fail) return {false, "mock_failure"};
     handle_open = true;
     return {true, ""};
   }
+  kinect2::ControlResult start_streams(kinect2::StreamSelection requested) override {
+    ++start_calls;
+    if (fail_start) return {false, "mock_start_failed"};
+    selected = requested;
+    started = true;
+    return {true, ""};
+  }
+  void stop_streams() noexcept override {
+    ++stop_calls;
+    started = false;
+  }
+  kinect2::StreamCounters counters() const noexcept override {
+    return selected.rgb ? kinect2::StreamCounters{12, 0, 0} :
+                          kinect2::StreamCounters{0, 17, 17};
+  }
   void close() noexcept override {
+    assert(!started); // Must stop workers BEFORE releasing USB.
     ++closed;
     handle_open = false;
   }
@@ -48,10 +69,30 @@ int main() {
   auto* first = first_mock.get();
   kinect2::DeviceSession a(std::move(first_mock), lock);
   assert(!a.is_open());
+  assert(a.start_streams({true, false}).code == "device_not_open");
+  assert(a.counters().rgb_frames == 0);
 
   assert(a.open().ok);
   assert(a.is_open() && first->handle_open && first->opened == 1);
   assert(!a.open().ok && first->opened == 1);
+  assert(a.start_streams({}).code == "no_stream_selected");
+  assert(a.start_streams({true, false}).ok);
+  assert(a.is_streaming() && first->started);
+  assert(a.selection().rgb && !a.selection().ir_depth);
+  assert(a.counters().rgb_frames == 12);
+  assert(a.start_streams({false, true}).code == "already_streaming");
+  assert(first->start_calls == 1);
+  a.stop_streams();
+  assert(!a.is_streaming() && !first->started);
+  assert(!a.selection().rgb && !a.selection().ir_depth);
+  // Stopping doesn't close USB; switching capture modes is explicit.
+  assert(a.is_open());
+  assert(a.start_streams({false, true}).ok);
+  assert(a.selection().ir_depth && a.counters().depth_frames == 17);
+  a.stop_streams();
+  assert(a.start_streams({true, true}).ok);
+  assert(a.selection().rgb && a.selection().ir_depth);
+  // close() must stop streams before closing USB.
 
   // Other processes and existing bridges use the same advisory flock.
   const int external = ::open(lock.c_str(), O_RDWR | O_CLOEXEC);
@@ -66,6 +107,7 @@ int main() {
 
   a.close();
   assert(!a.is_open() && !first->handle_open && first->closed == 1);
+  assert(!a.is_streaming() && !first->started && first->stop_calls >= 3);
   assert(b.open().ok);
   assert(second->opened == 1);
   b.close();
@@ -89,6 +131,20 @@ int main() {
   assert(!failing_session.is_open() && failing->closed == 1);
   assert(a.open().ok);
   a.close();
+
+  // A failed start must be rolled back, and a later attempt may succeed.
+  auto start_mock = std::make_unique<FakeHardware>();
+  auto* start_failure = start_mock.get();
+  kinect2::DeviceSession retry(std::move(start_mock), lock);
+  assert(retry.open().ok);
+  start_failure->fail_start = true;
+  assert(retry.start_streams({true, false}).code == "mock_start_failed");
+  assert(!retry.is_streaming() && retry.is_open());
+  assert(start_failure->stop_calls > 0);
+  start_failure->fail_start = false;
+  assert(retry.start_streams({false, true}).ok);
+  retry.close();
+  assert(!start_failure->started);
 
   // Destruction closes open handles and releases the lock.
   {

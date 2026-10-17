@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 mkdir -p "$ROOT/bin"
 CXX="${CXX:-g++}"
-FLAGS=(-std=c++23 -O2 -Wall -Wextra -Wpedantic -Werror -I"$ROOT")
+FLAGS=(-std=c++23 -O2 -Wall -Wextra -Wpedantic -Werror -pthread -I"$ROOT")
 SRC=("$ROOT/src/kinect_broker.cpp" "$ROOT/core/sensor_backend.cpp"
      "$ROOT/core/device_session.cpp" "$ROOT/core/libfreenect2_hardware.cpp")
 LINK=()
