@@ -51,6 +51,25 @@ class FakeCv2:
 
 
 class DemoWindowLifecycleTests(unittest.TestCase):
+    def test_missing_broker_shows_restart_instructions(self):
+        class FakeBroker:
+            socket_path = "/tmp/test-missing-kinect2-broker.sock"
+
+            def __init__(self, timeout):
+                self.timeout = timeout
+
+            def get_status(self):
+                raise demo.BrokerError("cannot communicate with broker")
+
+        with patch.object(demo, "BrokerClient", FakeBroker), \
+             patch.object(sys, "argv", ["demo_four_clients.py"]):
+            with self.assertRaises(SystemExit) as context:
+                demo.main()
+        message = str(context.exception)
+        self.assertIn("test-missing-kinect2-broker.sock", message)
+        self.assertIn("--allow-device-control --frame-preview", message)
+        self.assertIn("python3 tools/demo_four_clients.py", message)
+
     def test_closed_window_is_not_recreated(self):
         gui = FakeCv2(0)
         self.assertFalse(demo.show_if_open(gui, "RGB B", object()))
