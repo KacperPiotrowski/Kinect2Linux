@@ -31,3 +31,5 @@ Protokół, uprawnienia i ograniczenia prototypu: [docs/IPC-PROTOCOL.md](../../d
 **Ręczny test sprzętowy i procedura wycofania:** [DEVICE-CONTROL.md](../../docs/DEVICE-CONTROL.md). Przy poprawnym otwarciu Kinecta stan `open` oznacza wyłącznie uchwyt urządzenia, nie działające strumienie.
 
 **Selektywny capture (bez obrazów w Pythonie):** [STREAM-CAPTURE.md](../../docs/STREAM-CAPTURE.md). `get_status().frame_counts` wskazuje liczby odebranych ramek RGB, IR i Depth. Audio pozostaje niezależne przez ALSA/PipeWire.
+
+**Diagnoza przepustowości RGB i współpracy RGB+IR+Depth:** [RGB-PERFORMANCE.md](../../docs/RGB-PERFORMANCE.md), benchmark `python3 tools/benchmark_capture.py`. Najpierw pomiary po rozgrzewce, dopiero potem optymalizacje pipeline'u.
