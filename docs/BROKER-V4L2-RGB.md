@@ -141,9 +141,11 @@ Unrelated audio, Howdy, V4L2 IR and `/dev/video10` are unchanged.
 - Removing both IR viewers automatically disabled the IR/Depth group without disrupting RGB. Removing both SDK RGB viewers left the browser video live.
 - Closing the last browser reader resulted in `sensor_open=false`, `streaming=false`, both subscriber counts zero and a running broker service. Firefox recovered live image upon reopening.
 - After reboot/login, user broker automatically started; the legacy RGB writer was inactive, `/dev/video11` existed under the right name, V4L2 reported ready and the USB sensor remained closed at idle. Firefox and four SDK viewers worked after reboot.
-- Observed V4L2 `dropped=0`, `last_error=""` in sampled statuses. One transient `DepthPacketStreamParser: 7 packets were lost` warning appeared immediately after RGB-to-RGB+IR/Depth stream reconfiguration; not yet known whether sustained streams have gaps.
+- Observed V4L2 `dropped=0`, `last_error=""` in sampled statuses. One transient `DepthPacketStreamParser: 7 packets were lost` warning appeared immediately after RGB-to-RGB+IR/Depth stream reconfiguration. In a later 20-second five-client steady-state run, RGB advanced by 300 frames, IR by 600, Depth by 600; sequence-gap counters increased by **zero** for all three streams.
 
-**Not yet measured:** CPU/RSS under simultaneous readers, abrupt viewer crash with other readers still active, sustained RGB/IR/Depth sequence gaps, privacy-black behavior on stalled capture and multi-distribution startup. These must not be silently counted as passed.
+**Additional 2026-10-18 acceptance results:** With Firefox and 2 RGB + 2 IR SDK windows active, a snapshot of broker process PID 2458 showed RSS=157724 KiB (~154 MiB) and `ps %CPU=14.8`; note that `ps %CPU` is an average since process start (15m44s elapsed), **not** instantaneous load under five clients. Over the next 20 seconds, frame advances were RGB 300 (~15 fps), IR 600 (~30 fps), Depth 600 (~30 fps), all with **0 new sequence gaps**. An additional Depth SDK process subscribed (SDK count rose from four to five), was deliberately killed, and disappeared from subscriptions (back to four), while Firefox still reported one reader and USB remained open; existing video viewers were reported running. V4L2 `dropped=0`, `last_error=""` throughout sampled status.
+
+**Still not verified:** direct privacy-black behavior on a stalled sensor with a browser reader, multi-minute/hours stress and leak trends, instant peak CPU under load, independent manual-mode regression and multi-distribution install. Do not present these checks as passed.
 
 ### Optional targeted acceptance checks before merge
 
