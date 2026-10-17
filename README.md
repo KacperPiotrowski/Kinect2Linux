@@ -61,6 +61,17 @@ Instalacja urządzenia i usług **zmienia konfigurację systemu**. Wykonuj ją �
 
 Mikrofony ALSA działają niezależnie od mostu RGB. Przetwarzanie 4ch → mono/stereo to **opcjonalna**, jawna operacja po stronie klienta. Przykład odczytu natywnego i bezpiecznej analizy: [docs/AUDIO.md](docs/AUDIO.md).
 
+## Eksperymentalne procesy potomne i build przyrostowy
+
+Nowy broker (opcjonalnie) może sam uruchomić i nadzorować pomocniczy
+proces bez USB. CMake + Ninja kompiluje osobno zmienione moduły.
+Szczegóły i test offline: [CHILD-WORKERS.md](docs/CHILD-WORKERS.md).
+
+**Uwaga do FPS:** pomiar RGB 30 FPS uzyskano przy mocniejszym
+oświetleniu, natomiast w słabszym świetle automatyczna ekspozycja
+korelowała z RGB 15 FPS. W obu warunkach IR i Depth osiągały
+około 30 FPS; dane z jednego stanowiska nie są ogólną gwarancją.
+
 ## Dokumentacja i przykłady
 
 - [Plan przebudowy](docs/REBUILD-PLAN.md) — architektura wspólnego rdzenia i IPC.
