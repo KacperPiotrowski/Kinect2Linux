@@ -73,6 +73,12 @@ int main() {
   flock(external, LOCK_UN);
   ::close(external);
 
+  // Legacy ./kinect2 run/depth uses `flock -F`, which often creates a 0644 lock.
+  assert(::chmod(lock.c_str(), 0644) == 0);
+  assert(a.open().ok);
+  a.close();
+  assert(::chmod(lock.c_str(), 0600) == 0);
+
   // Device-open errors must release the advisory lock.
   auto failing_mock = std::make_unique<FakeHardware>();
   auto* failing = failing_mock.get();
