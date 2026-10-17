@@ -1,6 +1,6 @@
 # Kinect2-Linux — kontrolowane otwieranie Kinecta (eksperymentalne)
 
-**PR #7: tylko zarządzanie uchwytem USB przez libfreenect2, bez startowania RGB, IR, Depth, V4L2, ALSA i systemd.** Żaden ze starych mostów nie został zmieniony. Samo wykrywanie sysfs i działanie zwykłego brokera nie otwiera USB.
+**PR #7: zarządzanie uchwytem USB przez libfreenect2. Od PR #8 osobny, jawny tryb sprzętowy umożliwia start i stop native RGB i IR+Depth.** Żaden ze starych mostów nie został zmieniony. Samo wykrywanie sysfs i działanie zwykłego brokera nie otwiera USB.
 
 ## Dwa oddzielne buildy
 
@@ -50,7 +50,7 @@ finally:
 PY
 ```
 
-`get_status().state` zmienia się między `idle` a `open`, `sensor_open` między `false` i `true`, a `streaming` **pozostaje false**. `open` oznacza posiadanie uchwytu, nie działający obraz ani potwierdzenie ciągłej dostępności urządzenia. Po zakończeniu możesz znów używać dotychczasowych mostów.
+W tym teście `get_status().state` zmienia się między `idle` a `open`, `sensor_open` między `false` i `true`, a `streaming` pozostaje `false`, dopóki nie wywołasz nowego `start_streams()`. `open` oznacza posiadanie uchwytu, nie działający obraz ani potwierdzenie ciągłej dostępności urządzenia. Po zakończeniu możesz znów używać dotychczasowych mostów.
 
 **Jeśli `open_device` zwróci `device_busy`, nie zatrzymuj losowych procesów i nie kasuj pliku blokady.** Sprawdź kto używa urządzenia. Jeśli `open_failed` lub `no_device`, przeanalizuj dostęp USB i logi bez eskalacji uprawnień.
 
@@ -65,3 +65,5 @@ PY
 ## Testy bez sprzętu
 
 W CI natywny `test_device_session` korzysta z fałszywego `HardwareDevice`. Weryfikuje: cykl otwórz/zamknij, ponowne otwarcie, wzajemne wykluczanie `flock`, błędne otwarcie, RAII w destruktorze, ścieżki z symlinkami, uprawnienia katalogu i brak backendu. Integracja Python↔C++ sprawdza, że zwykły broker nigdy nie przejmuje USB. **W CI nie kompilujemy wariantu libfreenect2 ani nie możemy potwierdzić działania sprzętowego.**
+
+Od PR #8 nowe API przechwytywania, liczników i jego osobny test opisuje [STREAM-CAPTURE.md](STREAM-CAPTURE.md). Nadal brak transportu klatek do aplikacji.
