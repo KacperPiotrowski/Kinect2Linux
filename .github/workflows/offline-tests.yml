@@ -30,6 +30,8 @@ jobs:
         run: bash -n tools/bootstrap_libfreenect2_omp.sh
       - name: Native RGB sequence gap tracker tests
         run: ./bin/test_sequence_gap_tracker
+      - name: Native automatic subscription capture lifecycle tests (mock USB)
+        run: ./bin/test_auto_capture
       - name: Native supervised worker lifecycle tests
         run: ./bin/test_worker_process "$PWD/bin/kinect2-worker"
       - name: Native four-client frame fanout (mock frame bytes, no Kinect)
