@@ -14,6 +14,13 @@ namespace kinect2 {
 // The wire protocol is experimental and intentionally separate from JSON IPC.
 enum class FrameKind : std::uint8_t { rgb = 1, ir = 2, depth = 3 };
 
+struct SubscriptionCounts {
+  std::size_t rgb = 0;
+  std::size_t ir = 0;
+  std::size_t depth = 0;
+  [[nodiscard]] std::size_t total() const noexcept { return rgb + ir + depth; }
+};
+
 class FrameSink {
  public:
   virtual ~FrameSink() = default;
@@ -39,6 +46,10 @@ class FrameHub final : public FrameSink {
                std::uint32_t sequence) noexcept override;
 
   [[nodiscard]] std::size_t subscriber_count() const noexcept;
+  [[nodiscard]] SubscriptionCounts subscriptions() const noexcept;
+  // Reap disconnected viewers even if their stream has no new frames.
+  // Call from the broker loop; never stops or opens USB in FrameHub threads.
+  void reap_disconnected() noexcept;
 
  private:
   struct Client {
