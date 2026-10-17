@@ -32,8 +32,9 @@ Terminal 2 — kontroler otwierający jedną sesję USB i cztery osobne GUI:
     python3 tools/demo_four_clients.py
 
 Oczekuj czterech różnych okien z ruchomymi obrazami.
-ESC albo Q zamyka wyłącznie wybrane okno; pozostałe trzy nadal
-pracują. Kontroler zamyka USB po zamknięciu wszystkich okien albo
+Kliknięcie X na pasku tytułu albo ESC/Q zamyka wyłącznie wybrane
+okno; pozostałe trzy nadal pracują. Klient sprawdza stan okna
+przed wywołaniem imshow(), aby OpenCV nie utworzył go ponownie. Kontroler zamyka USB po zamknięciu wszystkich okien albo
 po Ctrl+C w terminalu 2, kiedy kończy bezpiecznie całą sesję.
 
 W trzecim terminalu możesz zbadać liczbę odbiorców:
