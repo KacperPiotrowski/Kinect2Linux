@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -8,33 +9,53 @@ namespace kinect2 {
 
 struct ControlResult {
   bool ok;
-  std::string code; // Empty on success; stable machine-readable error otherwise.
+  std::string code;
 };
 
-// Minimal boundary to libfreenect2, replaceable with an offline fake.
+// Start modes are independent at the API boundary. IR and Depth must be
+// acquired together when either one is requested from libfreenect2.
+struct StreamSelection {
+  bool rgb = false;
+  bool ir_depth = false;
+};
+
+struct StreamCounters {
+  std::uint64_t rgb_frames = 0;
+  std::uint64_t ir_frames = 0;
+  std::uint64_t depth_frames = 0;
+};
+
 class HardwareDevice {
  public:
   virtual ~HardwareDevice() = default;
   virtual ControlResult open() = 0;
-  virtual void close() noexcept = 0; // May be called after failed open.
+  virtual void close() noexcept = 0;
+  virtual ControlResult start_streams(StreamSelection streams) = 0;
+  virtual void stop_streams() noexcept = 0;
+  virtual StreamCounters counters() const noexcept = 0;
 };
 
-// nullptr means this broker was built without native Kinect support.
+// nullptr in the hardware-free build, even if CLI opt-in is requested.
 std::unique_ptr<HardwareDevice> make_hardware_device();
 
-// Holds the SAME flock file used by existing RGB/IR/Depth bridges for as long
-// as a physical device handle is open. Deliberately owns no video streams yet.
+// Exactly one USB owner. Lock is retained through start/stop until close().
+// This is NOT yet a subscription API: no image buffers leave the process.
 class DeviceSession final {
  public:
   DeviceSession(std::unique_ptr<HardwareDevice> device, std::filesystem::path lock_path);
   ~DeviceSession();
-
   DeviceSession(const DeviceSession&) = delete;
   DeviceSession& operator=(const DeviceSession&) = delete;
 
   ControlResult open();
+  ControlResult start_streams(StreamSelection streams);
+  void stop_streams() noexcept;
   void close() noexcept;
+
   [[nodiscard]] bool is_open() const noexcept { return open_; }
+  [[nodiscard]] bool is_streaming() const noexcept { return streaming_; }
+  [[nodiscard]] StreamSelection selection() const noexcept { return selection_; }
+  [[nodiscard]] StreamCounters counters() const noexcept;
 
  private:
   void release_lock() noexcept;
@@ -42,6 +63,8 @@ class DeviceSession final {
   std::filesystem::path lock_path_;
   int lock_fd_ = -1;
   bool open_ = false;
+  bool streaming_ = false;
+  StreamSelection selection_{};
 };
 
 } // namespace kinect2
