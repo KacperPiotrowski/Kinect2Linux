@@ -26,11 +26,11 @@ class FrameClientTests(unittest.TestCase):
         self.reader.settimeout(1)
 
     def send(self, *, stream=2, width=512, height=424, broken_size=False,
-             attach_fd=True):
+             attach_fd=True, seq=42):
         size = width * height * 4
         hdr = HEADER.pack(
             b"K2F1", stream, 4, 0, width, height,
-            size + (4 if broken_size else 0), 42, 123456,
+            size + (4 if broken_size else 0), seq, 123456,
         )
         anc = []
         if attach_fd:
@@ -54,6 +54,47 @@ class FrameClientTests(unittest.TestCase):
             self.assertEqual(frame.sequence, 42)
             self.assertEqual(frame.host_time_us, 123456)
             self.assertEqual(len(frame.mapping), 512 * 424 * 4)
+
+    def test_latest_skips_backlog_and_returns_newest_sequence(self):
+        self.send(seq=91)
+        self.send(seq=92)
+        self.send(seq=93)
+        client = FrameClient("ir")
+        client._sock = self.reader  # Offline harness: handshake already bypassed.
+        frame, skipped = client.receive_latest()
+        with frame:
+            self.assertEqual(frame.kind, "ir")
+            self.assertEqual(frame.sequence, 93)
+        self.assertEqual(skipped, 2)
+
+    def test_latest_single_packet_keeps_it(self):
+        self.send(seq=104)
+        client = FrameClient("ir")
+        client._sock = self.reader
+        frame, skipped = client.receive_latest()
+        with frame:
+            self.assertEqual(frame.sequence, 104)
+        self.assertEqual(skipped, 0)
+
+    def test_latest_bounded_drain(self):
+        for seq in range(10, 15):
+            self.send(seq=seq)
+        client = FrameClient("ir")
+        client._sock = self.reader
+        frame, skipped = client.receive_latest(max_pending=2)
+        with frame:
+            self.assertEqual(frame.sequence, 12)
+        self.assertEqual(skipped, 2)
+        with client.receive() as next_frame:
+            self.assertEqual(next_frame.sequence, 13)
+        with client.receive() as next_frame:
+            self.assertEqual(next_frame.sequence, 14)
+
+    def test_latest_parameter_rejects_wrong_limits(self):
+        client = FrameClient("ir")
+        for limit in (0, -1, 129, True, 2.5):
+            with self.subTest(limit=limit), self.assertRaises(ValueError):
+                client.receive_latest(max_pending=limit)
 
     def test_wrong_frame_byte_length_rejected(self):
         self.send(broken_size=True)
