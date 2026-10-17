@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "sdk" / "python"))
 
 from kinect2_linux.frame_client import (  # noqa: E402
-    FrameClient, FrameProtocolError, HEADER, recv_frame_packet,
+    FrameClient, FrameProtocolError, FrameTimeoutError, HEADER, recv_frame_packet,
 )
 
 
@@ -95,6 +95,34 @@ class FrameClientTests(unittest.TestCase):
         for limit in (0, -1, 129, True, 2.5):
             with self.subTest(limit=limit), self.assertRaises(ValueError):
                 client.receive_latest(max_pending=limit)
+
+    def test_temporary_timeout_keeps_subscription_alive(self):
+        self.reader.settimeout(0.02)
+        with self.assertRaises(FrameTimeoutError):
+            recv_frame_packet(self.reader)
+        # No disconnect: the next real frame must still arrive.
+        self.send(seq=74)
+        with recv_frame_packet(self.reader) as frame:
+            self.assertEqual(frame.sequence, 74)
+
+    def test_receive_latest_timeout_does_not_close_client_socket(self):
+        self.reader.settimeout(0.02)
+        client = FrameClient("ir")
+        client._sock = self.reader
+        with self.assertRaises(FrameTimeoutError):
+            client.receive_latest()
+        self.send(seq=75)
+        frame, skipped = client.receive_latest()
+        with frame:
+            self.assertEqual(frame.sequence, 75)
+        self.assertEqual(skipped, 0)
+
+    def test_no_frames_nonblocking_is_retryable(self):
+        with self.assertRaises(FrameTimeoutError):
+            recv_frame_packet(self.reader, nonblocking=True)
+        self.send(seq=76)
+        with recv_frame_packet(self.reader) as frame:
+            self.assertEqual(frame.sequence, 76)
 
     def test_wrong_frame_byte_length_rejected(self):
         self.send(broken_size=True)
