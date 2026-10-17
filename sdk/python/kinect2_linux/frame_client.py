@@ -10,6 +10,7 @@ import array
 import mmap
 import os
 from pathlib import Path
+import select
 import socket
 import struct
 
@@ -43,12 +44,13 @@ class FrameSnapshot:
         self.close()
 
 
-def recv_frame_packet(sock: socket.socket) -> FrameSnapshot:
+def recv_frame_packet(sock: socket.socket, *, nonblocking: bool = False) -> FrameSnapshot:
     """Receive exactly one descriptor and validated, immutable image mapping."""
     fd_size = array.array("i").itemsize
     try:
         packet, ancdata, flags, _addr = sock.recvmsg(
-            HEADER.size, socket.CMSG_SPACE(fd_size * 4), socket.MSG_CMSG_CLOEXEC,
+            HEADER.size, socket.CMSG_SPACE(fd_size * 4),
+            socket.MSG_CMSG_CLOEXEC | (socket.MSG_DONTWAIT if nonblocking else 0),
         )
     except OSError as exc:
         raise FrameProtocolError("frame socket receive failed") from exc
@@ -132,6 +134,35 @@ class FrameClient:
             packet.close()
             raise FrameProtocolError("wrong stream received")
         return packet
+
+    def receive_latest(self, *, max_pending: int = 32) -> tuple[FrameSnapshot, int]:
+        """For interactive video, discard queued old snapshots before rendering.
+
+        Returns (newest_frame, skipped_queued_count). This discards stale frames
+        *only* for this subscriber; it never changes sensor/other clients.
+        A finite bound prevents starvation if the producer stays faster.
+        """
+        if type(max_pending) is not int or not 1 <= max_pending <= 128:
+            raise ValueError("max_pending must be an integer from 1 to 128")
+        frame = self.receive()  # Blocking wait for the next available packet.
+        skipped = 0
+        try:
+            for _ in range(max_pending):
+                # No extra blocking wait: this is a live preview, not recording.
+                ready, _, _ = select.select([self._sock], [], [], 0)
+                if not ready:
+                    break
+                newer = recv_frame_packet(self._sock, nonblocking=True)
+                if newer.kind != self.stream:
+                    newer.close()
+                    raise FrameProtocolError("wrong stream received")
+                frame.close()  # Also releases old mmap; received fd already closed.
+                frame = newer
+                skipped += 1
+            return frame, skipped
+        except BaseException:
+            frame.close()
+            raise
 
     def close(self) -> None:
         if self._sock is not None:
