@@ -21,4 +21,9 @@ if [[ ! -x "$BROKER" ]]; then
 fi
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
 export OMP_DYNAMIC=FALSE
-exec "$BROKER" --allow-device-control --frame-preview --auto-streams
+args=(--allow-device-control --frame-preview --auto-streams)
+# Explicit opt-in: requires the legacy RGB writer to be stopped first.
+if [[ "${KINECT2_BROKER_V4L2:-0}" == "1" ]]; then
+  args+=(--v4l2-rgb)
+fi
+exec "$BROKER" "${args[@]}"

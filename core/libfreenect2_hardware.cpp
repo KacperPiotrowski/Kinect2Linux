@@ -12,6 +12,7 @@
 #include <memory>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -133,11 +134,27 @@ class Libfreenect2Hardware final : public kinect2::HardwareDevice {
             gaps.fetch_add(sequence.observe(it->second->sequence),
                            std::memory_order_relaxed);
             if (sink_) {
-              sink_->publish(kind, it->second->data,
-                             static_cast<std::uint32_t>(it->second->width),
-                             static_cast<std::uint32_t>(it->second->height),
-                             static_cast<std::uint32_t>(it->second->bytes_per_pixel),
-                             it->second->sequence);
+              // The frame IPC and broker-owned V4L2 contract is BGRX.
+              // CpuPacketPipeline normally produces BGRX; normalize the
+              // alternative libfreenect2 RGBX format before publication.
+              const auto* native = it->second;
+              const std::uint8_t* pixels = native->data;
+              std::vector<std::uint8_t> normalized;
+              if (kind == kinect2::FrameKind::rgb &&
+                  native->format == libfreenect2::Frame::RGBX &&
+                  native->bytes_per_pixel == 4) {
+                const std::size_t n = std::size_t(native->width) *
+                                      native->height * 4;
+                normalized.assign(native->data, native->data + n);
+                for (std::size_t i = 0; i < n; i += 4)
+                  std::swap(normalized[i], normalized[i + 2]);
+                pixels = normalized.data();
+              }
+              sink_->publish(kind, pixels,
+                             static_cast<std::uint32_t>(native->width),
+                             static_cast<std::uint32_t>(native->height),
+                             static_cast<std::uint32_t>(native->bytes_per_pixel),
+                             native->sequence);
             }
           }
         };

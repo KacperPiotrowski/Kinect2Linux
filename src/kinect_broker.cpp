@@ -1,7 +1,7 @@
 // Kinect2-Linux experimental LOCAL control broker.
 // USB can only be opened with an explicitly enabled, hardware-linked build.
 // Selected native streams can run only in explicit hardware mode.
-// Frames are counted in-process; no frame data, V4L2 or ALSA in this PR.
+// Optional native V4L2 RGB output shares this broker's USB capture.
 #include <arpa/inet.h>
 #include <cerrno>
 #include <csignal>
@@ -13,6 +13,8 @@
 #include "core/sensor_backend.hpp"
 #include "core/device_session.hpp"
 #include "core/frame_hub.hpp"
+#include "core/frame_sink_fanout.hpp"
+#include "core/v4l2_rgb_output.hpp"
 #include "core/auto_capture.hpp"
 #include "core/worker_process.hpp"
 #include <memory>
@@ -104,6 +106,7 @@ void handle_client(int fd, const kinect2::SensorBackend& backend,
                    kinect2::DeviceSession* device_session,
                    kinect2::WorkerProcess* worker_process,
                    kinect2::FrameHub* frame_hub,
+                   kinect2::V4l2RgbOutput* v4l2_rgb,
                    kinect2::AutoCapture* auto_capture) {
   struct ucred peer {};
   socklen_t size = sizeof(peer);
@@ -164,6 +167,12 @@ void handle_client(int fd, const kinect2::SensorBackend& backend,
                          {"depth", viewers.depth},
                          {"mode", auto_capture ? "automatic" : "manual"},
                          {"last_error", auto_capture ? auto_capture->last_error() : ""}}},
+      {"v4l2_rgb", {{"enabled", v4l2_rgb != nullptr},
+                     {"ready", v4l2_rgb && v4l2_rgb->active()},
+                     {"streaming_clients", v4l2_rgb ? v4l2_rgb->viewers() : 0},
+                     {"frames", v4l2_rgb ? v4l2_rgb->frames_written() : 0},
+                     {"dropped", v4l2_rgb ? v4l2_rgb->drops() : 0},
+                     {"last_error", v4l2_rgb ? v4l2_rgb->last_error() : ""}}},
       {"worker", {{"enabled", worker_process != nullptr},
                   {"pid", worker_process ? worker_process->pid() : 0},
                   {"healthy", worker_process && worker_process->ping()}}},
@@ -287,9 +296,10 @@ int main(int argc, char** argv) {
   bool allow_device_control = false;
   bool enable_frame_preview = false;
   bool auto_streams = false;
+  bool enable_v4l2_rgb = false;
   std::string worker_executable;
   if (argc == 2 && std::string_view(argv[1]) == "--help") {
-    std::cout << "Usage: kinect2-broker [--socket PATH] [--allow-device-control] [--worker /ABS/PATH] [--frame-preview] [--auto-streams]\n"
+    std::cout << "Usage: kinect2-broker [--socket PATH] [--allow-device-control] [--worker /ABS/PATH] [--frame-preview] [--auto-streams] [--v4l2-rgb]\n"
                  "Device control requires a separate --with-hardware build.\n";
     return 0;
   }
@@ -302,12 +312,18 @@ int main(int argc, char** argv) {
       enable_frame_preview = true;
     else if (arg == "--auto-streams" && !auto_streams)
       auto_streams = true;
+    else if (arg == "--v4l2-rgb" && !enable_v4l2_rgb)
+      enable_v4l2_rgb = true;
     else if (arg == "--worker" && worker_executable.empty() && i + 1 < argc)
       worker_executable = argv[++i];
     else {
       std::cerr << "Usage: kinect2-broker [--socket PATH] [--allow-device-control]\n";
       return 2;
     }
+  }
+  if (enable_v4l2_rgb && !auto_streams) {
+    std::cerr << "--v4l2-rgb requires --auto-streams (one USB owner).\n";
+    return 2;
   }
   if (auto_streams && !enable_frame_preview) {
     std::cerr << "--auto-streams requires --frame-preview and hardware control.\n";
@@ -390,8 +406,26 @@ int main(int argc, char** argv) {
       unlink(path.c_str()); // Verified inode created by this process above.
       return 2;
     }
-    device_session->set_frame_sink(frame_hub.get());
     std::cout << "Experimental frame preview socket: " << frame_path << '\n';
+  }
+  std::unique_ptr<kinect2::V4l2RgbOutput> v4l2_rgb;
+  if (enable_v4l2_rgb) {
+    v4l2_rgb = std::make_unique<kinect2::V4l2RgbOutput>();
+    if (!v4l2_rgb->start()) {
+      std::cerr << "Cannot start in-process RGB V4L2 output: "
+                << v4l2_rgb->last_error() << '\n'
+                << "Stop the legacy kinect2-rgb-webcam.service before enabling "
+                   "the broker's V4L2 mode.\n";
+      ::close(server);
+      ::unlink(path.c_str());
+      return 2;
+    }
+  }
+  std::unique_ptr<kinect2::FrameFanout> fanout;
+  if (frame_hub) {
+    fanout = std::make_unique<kinect2::FrameFanout>(
+        *frame_hub, v4l2_rgb.get());
+    device_session->set_frame_sink(fanout.get());
   }
   std::unique_ptr<kinect2::AutoCapture> auto_capture;
   if (auto_streams) auto_capture = std::make_unique<kinect2::AutoCapture>(*device_session);
@@ -405,7 +439,14 @@ int main(int argc, char** argv) {
       // The FrameHub and USB session never call into each other. The broker
       // thread is the sole owner of all potentially blocking USB operations.
       frame_hub->reap_disconnected();
-      if (auto_capture) auto_capture->reconcile(frame_hub->subscriptions());
+      if (auto_capture) {
+        auto wanted = frame_hub->subscriptions();
+        // Count each active Firefox/OBS webcam reader as RGB demand,
+        // without pretending it is an SDK Unix socket subscriber.
+        if (v4l2_rgb && v4l2_rgb->active())
+          wanted.rgb += v4l2_rgb->viewers();
+        auto_capture->reconcile(wanted);
+      }
     }
     pollfd event{server, POLLIN, 0};
     const int ready = ::poll(&event, 1, 100);
@@ -421,12 +462,15 @@ int main(int argc, char** argv) {
       perror("accept"); break;
     }
     handle_client(client, sensor_backend, device_session.get(),
-                  worker_process.get(), frame_hub.get(), auto_capture.get());
+                  worker_process.get(), frame_hub.get(), v4l2_rgb.get(),
+                  auto_capture.get());
     close(client);
   }
   auto_capture.reset();
   worker_process.reset(); // Gracefully stop/reap child before broker exits.
-  device_session.reset(); // Join capture pumps BEFORE closing frame hub.
+  device_session.reset(); // Join capture pumps BEFORE destroying sinks.
+  fanout.reset();
+  v4l2_rgb.reset();
   frame_hub.reset();
   close(server);
   // Avoid removing a path that was replaced while the server was running.
