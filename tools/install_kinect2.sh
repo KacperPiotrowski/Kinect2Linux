@@ -76,10 +76,18 @@ prepare() {
 activate() {
   check_user
   command -v systemctl >/dev/null 2>&1 || fail 'systemctl required.'
+  systemctl --user show-environment >/dev/null 2>&1 ||
+    fail 'systemd user manager unavailable. Log in to a user session first.'
   [[ -x $ROOT/bin/kinect2-broker-hw ]] || fail 'Run --prepare first (missing hardware broker).'
   [[ -f $USER_UNIT && ! -L $USER_UNIT ]] || fail 'Managed user unit missing; run --prepare.'
   grep -Fxq '# Managed by Kinect2-Linux broker installer.' "$USER_UNIT" ||
     fail 'Refusing unmanaged broker unit.'
+  grep -Fxq 'ExecStart=/usr/bin/bash %h/.local/bin/kinect2-broker-run' "$USER_UNIT" ||
+    fail 'Refusing unexpected broker service ExecStart.'
+  local launcher="$HOME/.local/bin/kinect2-broker-run"
+  [[ -L $launcher &&
+     $(readlink -f -- "$launcher") == "$ROOT/tools/run_broker_service.sh" ]] ||
+    fail 'Refusing missing/unexpected broker launcher symlink. Run --prepare.'
   [[ -c $DEVICE ]] || fail '/dev/video11 missing; set up explicitly (docs/INSTALL.md).'
   [[ $(cat "$NAME_FILE" 2>/dev/null || true) == 'Kinect v2 RGB' ]] ||
     fail 'Refusing unexpected /dev/video11 device.'
@@ -92,6 +100,8 @@ activate() {
     fail 'Legacy RGB autostart enabled. Disable it manually first.'
   [[ $(service_state is-active "$BROKER") != active ]] ||
     fail 'Broker already active; refusing to restart existing client streams.'
+  [[ ! -L $(dirname -- "$DROPIN") ]] ||
+    fail 'Refusing symlinked broker drop-in directory.'
   [[ ! -L $DROPIN ]] || fail "Refusing symlinked configuration: $DROPIN"
   if [[ -e $DROPIN ]]; then
     cmp -s "$DROPIN" <(printf '[Service]\nEnvironment=KINECT2_BROKER_V4L2=1\n') ||
