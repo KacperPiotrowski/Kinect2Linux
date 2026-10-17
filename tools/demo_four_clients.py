@@ -39,7 +39,7 @@ def show_if_open(cv2, label: str, image: object) -> bool:
     return True
 
 
-def viewer(stream: str, label: str) -> None:
+def viewer(stream: str, label: str, *, latest: bool = True) -> None:
     try:
         import cv2
         import numpy as np
@@ -53,6 +53,7 @@ def viewer(stream: str, label: str) -> None:
     last = time.monotonic()
     displayed = 0
     fps = 0.0
+    skipped_total = 0
     with FrameClient(stream, timeout=10) as client:
         try:
             while True:
@@ -61,7 +62,12 @@ def viewer(stream: str, label: str) -> None:
                 key = cv2.waitKey(1) & 0xFF
                 if key in (27, ord("q")) or not window_is_open(cv2, label):
                     break
-                with client.receive() as frame:
+                # Interactive previews skip packets already superseded in
+                # this client\u0027s socket queue; capture still runs unchanged.
+                frame, skipped = (client.receive_latest() if latest
+                                  else (client.receive(), 0))
+                skipped_total += skipped
+                with frame:
                     if stream == "rgb":
                         # libfreenect2 CPU color output is 4 bytes per pixel.
                         # BGRX: keep three components for the OpenCV viewer.
@@ -77,15 +83,24 @@ def viewer(stream: str, label: str) -> None:
                                               cv2.NORM_MINMAX).astype(np.uint8)
                         del raw
                     seq = frame.sequence
+                    # Only the host-side age SINCE broker publication, not
+                    # USB sensor exposure, acquisition or complete latency.
+                    age_ms = max(0.0, (time.monotonic_ns() // 1000 -
+                                       frame.host_time_us) / 1000.0)
                 displayed += 1
                 now = time.monotonic()
                 if now - last >= 1:
                     fps = displayed / (now - last)
                     last, displayed = now, 0
-                cv2.putText(image, f"{label} | {fps:.1f} display FPS | seq={seq}",
-                            (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                            (255, 255, 255) if stream == "rgb" else 255,
-                            2, cv2.LINE_AA)
+                ink = (255, 255, 255) if stream == "rgb" else 255
+                cv2.putText(image,
+                            f"{label} | {fps:.1f} FPS | broker-age {age_ms:.0f}ms",
+                            (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.65,
+                            ink, 2, cv2.LINE_AA)
+                cv2.putText(image,
+                            f"seq={seq} | stale queue frames skipped={skipped_total}",
+                            (20, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                            ink, 2, cv2.LINE_AA)
                 # A close event may also arrive while waiting for a frame.
                 cv2.waitKey(1)
                 if not show_if_open(cv2, label, image):
@@ -103,9 +118,11 @@ def main() -> int:
                         help=argparse.SUPPRESS)
     parser.add_argument("--label", default="Kinect2 preview",
                         help=argparse.SUPPRESS)
+    parser.add_argument("--ordered-frames", action="store_true",
+                        help="display every queued packet in arrival order (latency A/B)")
     args = parser.parse_args()
     if args.viewer:
-        viewer(args.viewer, args.label)
+        viewer(args.viewer, args.label, latest=not args.ordered_frames)
         return 0
 
     broker = BrokerClient(timeout=20)
@@ -149,10 +166,14 @@ def main() -> int:
             children.append(subprocess.Popen([
                 sys.executable, str(Path(__file__).resolve()),
                 "--viewer", stream, "--label", name,
-            ], stdin=subprocess.DEVNULL))
+            ] + (["--ordered-frames"] if args.ordered_frames else []),
+                stdin=subprocess.DEVNULL))
         print("Four independent viewers started. Close individual windows with ESC/Q; "
               "press Ctrl+C here to stop all.", flush=True)
         print("Capture uses ONE Kinect USB owner: the broker.", flush=True)
+        print("Viewer queue mode: " + ("ordered (A/B baseline)" if args.ordered_frames
+                                      else "latest-frame (low-latency preview)"),
+              flush=True)
         exited: set[int] = set()
         while True:
             for child in children:
