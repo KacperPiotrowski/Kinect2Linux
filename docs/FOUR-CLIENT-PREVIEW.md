@@ -31,6 +31,23 @@ Terminal 2 — kontroler otwierający jedną sesję USB i cztery osobne GUI:
 
     python3 tools/demo_four_clients.py
 
+Domyślny podgląd jest teraz **low-latency**: klient bierze najświeższą
+dostępną klatkę i odrzuca starsze pakiety zalegające w jego kolejce.
+To może ograniczyć subiektywne opóźnienie, kosztem pomijania części
+klatek przez konkretny podgląd. Nie dotyka kolejki sensora ani innych
+odbiorców. Licznik `stale queue frames skipped` w każdym oknie
+pokazuje liczbę pominiętych zaległych pakietów.
+
+Alternatywny test A/B — stare zachowanie FIFO, wszystkie pakiety po kolei:
+
+    python3 tools/demo_four_clients.py --ordered-frames
+
+Porównaj przy identycznym świetle, ruchach dłoni i ustawieniu
+OMP_NUM_THREADS: płynność, opóźnienie i broker-age w czterech oknach.
+Wskaźnik `broker-age` to wiek od chwili publikacji w brokerze,
+**nie całkowita latencja sensora**: nie obejmuje USB i czasu obróbki
+przed publikacją. Nie dowodzi synchronizacji RGB↔IR.
+
 Oczekuj czterech różnych okien z ruchomymi obrazami.
 Kliknięcie X na pasku tytułu albo ESC/Q zamyka wyłącznie wybrane
 okno; pozostałe trzy nadal pracują. Klient sprawdza stan okna
@@ -82,3 +99,12 @@ Nie można otwierać Kinecta z innego procesu.
 
 **Nie scalać wyłącznie po CI:** potrzebny test na rzeczywistym sprzęcie
 i czterech otwartych oknach oraz ocena CPU i pamięci.
+
+Ostatnia próba (Ryzen 9 7900, cztery podglądy): domyślny
+CpuPacketPipeline/OpenMP: ~39–40% całego CPU, broker 714%;
+po `OMP_NUM_THREADS=4 OMP_DYNAMIC=FALSE` około 25% całego CPU,
+broker 232%, ale użytkownik odczuwał możliwe opóźnienie IR.
+Nie mamy jeszcze fizycznego pomiaru latencji — test najświeższej klatki
+oraz parametr broker-age ma pomóc odróżnić zaległości IPC/GUI od
+opóźnienia wcześniejszej ścieżki przetwarzania.
+
