@@ -24,6 +24,10 @@ class FrameProtocolError(RuntimeError):
     """Invalid, missing or unsupported local frame packet."""
 
 
+class FrameTimeoutError(FrameProtocolError):
+    """No frame arrived before the deadline; the socket may still recover."""
+
+
 @dataclass
 class FrameSnapshot:
     kind: str
@@ -52,6 +56,10 @@ def recv_frame_packet(sock: socket.socket, *, nonblocking: bool = False) -> Fram
             HEADER.size, socket.CMSG_SPACE(fd_size * 4),
             socket.MSG_CMSG_CLOEXEC | (socket.MSG_DONTWAIT if nonblocking else 0),
         )
+    except (TimeoutError, BlockingIOError) as exc:
+        # A stalled sensor or an empty nonblocking queue is not malformed IPC.
+        # Keep the connected subscription alive so clients can wait/retry.
+        raise FrameTimeoutError("no frame received before timeout") from exc
     except OSError as exc:
         raise FrameProtocolError("frame socket receive failed") from exc
 
@@ -152,7 +160,12 @@ class FrameClient:
                 ready, _, _ = select.select([self._sock], [], [], 0)
                 if not ready:
                     break
-                newer = recv_frame_packet(self._sock, nonblocking=True)
+                try:
+                    newer = recv_frame_packet(self._sock, nonblocking=True)
+                except FrameTimeoutError:
+                    # select() readiness may become stale before recvmsg().
+                    # We already hold a valid snapshot; don't discard it.
+                    break
                 if newer.kind != self.stream:
                     newer.close()
                     raise FrameProtocolError("wrong stream received")
