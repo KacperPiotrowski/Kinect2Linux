@@ -70,6 +70,48 @@ class DemoWindowLifecycleTests(unittest.TestCase):
         self.assertIn("--allow-device-control --frame-preview", message)
         self.assertIn("python3 tools/demo_four_clients.py", message)
 
+    def test_automatic_demo_never_uses_global_usb_commands(self):
+        class FakeBroker:
+            def __init__(self, timeout):
+                pass
+
+            def get_status(self):
+                return {
+                    "frame_preview": {"enabled": True, "mode": "automatic"},
+                    "sensor_open": True, "streaming": True,
+                }
+
+            def open_device(self):
+                raise AssertionError("Automatic subscribers never open USB manually")
+
+            def start_streams(self, **_kwargs):
+                raise AssertionError("Automatic subscribers never start streams globally")
+
+            def stop_streams(self):
+                raise AssertionError("Automatic subscribers never stop other clients")
+
+            def close_device(self):
+                raise AssertionError("Automatic subscribers never close another session")
+
+        class FakeChild:
+            pid = 345
+            returncode = 0
+
+            def __init__(self, command, stdin):
+                self.command = command
+
+            def poll(self):
+                return 0
+
+            def wait(self, timeout=None):
+                return 0
+
+        with patch.object(demo, "BrokerClient", FakeBroker), \
+             patch.object(demo.subprocess, "Popen", FakeChild) as spawned, \
+             patch.object(sys, "argv", ["demo_four_clients.py"]):
+            self.assertEqual(demo.main(), 0)
+        self.assertEqual(spawned.call_count, 4)
+
     def test_closed_window_is_not_recreated(self):
         gui = FakeCv2(0)
         self.assertFalse(demo.show_if_open(gui, "RGB B", object()))
