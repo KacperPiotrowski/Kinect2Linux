@@ -70,6 +70,84 @@ class DemoWindowLifecycleTests(unittest.TestCase):
         self.assertIn("--allow-device-control --frame-preview", message)
         self.assertIn("python3 tools/demo_four_clients.py", message)
 
+    def test_automatic_demo_never_uses_global_usb_commands(self):
+        class FakeBroker:
+            def __init__(self, timeout):
+                pass
+
+            def get_status(self):
+                return {
+                    "frame_preview": {"enabled": True, "mode": "automatic"},
+                    "sensor_open": True, "streaming": True,
+                }
+
+            def open_device(self):
+                raise AssertionError("Automatic subscribers never open USB manually")
+
+            def start_streams(self, **_kwargs):
+                raise AssertionError("Automatic subscribers never start streams globally")
+
+            def stop_streams(self):
+                raise AssertionError("Automatic subscribers never stop other clients")
+
+            def close_device(self):
+                raise AssertionError("Automatic subscribers never close another session")
+
+        class FakeChild:
+            pid = 345
+            returncode = 0
+
+            def __init__(self, command, stdin):
+                self.command = command
+
+            def poll(self):
+                return 0
+
+            def wait(self, timeout=None):
+                return 0
+
+        with patch.object(demo, "BrokerClient", FakeBroker), \
+             patch.object(demo.subprocess, "Popen", side_effect=FakeChild) as spawned, \
+             patch.object(sys, "argv", ["demo_four_clients.py"]):
+            self.assertEqual(demo.main(), 0)
+        self.assertEqual(spawned.call_count, 4)
+
+    def test_viewer_survives_no_frame_timeout_then_closes_with_x(self):
+        gui = FakeCv2(1)
+        cv2_module = types.ModuleType("cv2")
+        cv2_module.error = gui.error
+        cv2_module.WND_PROP_VISIBLE = gui.WND_PROP_VISIBLE
+        cv2_module.WINDOW_NORMAL = gui.WINDOW_NORMAL
+        for name in ("namedWindow", "resizeWindow", "waitKey",
+                     "getWindowProperty", "imshow", "destroyAllWindows"):
+            setattr(cv2_module, name, getattr(gui, name))
+        numpy_module = types.ModuleType("numpy")
+
+        class PausedFrameClient:
+            calls = 0
+
+            def __init__(self, stream, timeout):
+                self.stream = stream
+                self.timeout = timeout
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def receive_latest(self):
+                type(self).calls += 1
+                gui.property_value = 0  # User closes X while frame is paused.
+                raise demo.FrameTimeoutError("no frames yet")
+
+        with patch.dict(sys.modules, {"cv2": cv2_module, "numpy": numpy_module}), \
+             patch.object(demo, "FrameClient", PausedFrameClient):
+            demo.viewer("rgb", "RGB B")
+        self.assertEqual(PausedFrameClient.calls, 1)
+        self.assertTrue(gui.destroyed)
+        self.assertEqual(gui.shown, [])
+
     def test_closed_window_is_not_recreated(self):
         gui = FakeCv2(0)
         self.assertFalse(demo.show_if_open(gui, "RGB B", object()))
