@@ -40,6 +40,6 @@ jobs:
           KINECT2_WORKER_BIN: ${{ github.workspace }}/bin/kinect2-worker
         run: python -m unittest discover -s tests -v
       - name: Bash syntax
-        run: bash -n kinect2 face3d webcam/*.sh tools/build_broker.sh
+        run: bash -n kinect2 face3d webcam/*.sh tools/build_broker.sh tools/libfreenect2_path.sh
       - name: Validate public tree
         run: python tools/check_public_tree.py

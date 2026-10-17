@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-LIB_DIR="$(readlink -f -- "${LIBFREENECT2_DIR:-$ROOT/../libfreenect2-omp}")"
+source "$ROOT/tools/libfreenect2_path.sh"
+LIB_DIR="$(kinect2_libfreenect2_dir "$ROOT")"
 SO="$LIB_DIR/build-omp/lib/libfreenect2.so"
 [[ -f "$SO" ]] || { echo "Missing libfreenect2 OpenMP: $SO" >&2; exit 1; }
 mkdir -p "$ROOT/bin"

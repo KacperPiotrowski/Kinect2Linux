@@ -2,7 +2,8 @@
 # Additive test tool for Kinect2-Linux. Does not modify existing launchers/PAM.
 set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-LIB_DIR="$(readlink -f -- "${LIBFREENECT2_DIR:-$ROOT/../libfreenect2-omp}")"
+source "$ROOT/tools/libfreenect2_path.sh"
+LIB_DIR="$(kinect2_libfreenect2_dir "$ROOT")"
 SO="$LIB_DIR/build-omp/lib/libfreenect2.so"
 SOURCE="$ROOT/src/kinect_face3d_stream.cpp"
 APP="$ROOT/bin/kinect_face3d_stream"
