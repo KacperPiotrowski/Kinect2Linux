@@ -167,6 +167,14 @@ void FrameHub::accept_loop() noexcept {
       ::close(client);
       continue;
     }
+    // Bound queued sealed memfds if a viewer stops reading. Linux doubles
+    // SO_SNDBUF and enforces a minimum; even then only a few fd packets fit.
+    const int small_send_buffer = 1024;
+    if (::setsockopt(client, SOL_SOCKET, SO_SNDBUF,
+                     &small_send_buffer, sizeof(small_send_buffer)) != 0) {
+      ::close(client);
+      continue;
+    }
     pollfd ready{client, POLLIN, 0};
     int rc = ::poll(&ready, 1, 300);
     if (rc <= 0 || !(ready.revents & POLLIN)) {
