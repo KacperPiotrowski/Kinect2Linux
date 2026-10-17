@@ -6,8 +6,11 @@ independent Python RGB / IR / Depth `FrameClient` subscribers use the same
 already decoded frames. No standalone RGB service may hold the video writer
 at the same time.
 
-**Not yet verified on physical hardware**. Run the test below before
-retiring the standalone RGB service. This is *not* the final 1.0 installer.
+**Hardware smoke-tested on one physical Kinect v2 on Arch Linux/KDE (2026-10-18),
+including Firefox + four SDK clients, idle USB release and reboot/login.**
+This does not establish cross-distribution compatibility, sustained stability,
+or a finished version 1.0 installer; complete remaining acceptance checks
+before merging or retiring the standalone RGB service.
 
 ## Internals
 
@@ -129,3 +132,40 @@ The old webcam remains on its original path and works on demand.
 Until all the above hardware checks pass, **do not enable/disable or
 remove the legacy service automatically**, and do not merge this PR.
 Unrelated audio, Howdy, V4L2 IR and `/dev/video10` are unchanged.
+
+
+## Hardware observations (2026-10-18; maintainer report)
+
+- A single Firefox reader caused `streaming_clients=1`, `sensor_open=true`, `selected.rgb=true`, `selected.ir_depth=false`; no SDK subscribers.
+- All five live previews worked at once: Firefox plus two independent SDK RGB and two SDK IR viewers. `frame_preview.subscribers=4` while `v4l2_rgb.streaming_clients=1` and both hardware stream groups were selected.
+- Removing both IR viewers automatically disabled the IR/Depth group without disrupting RGB. Removing both SDK RGB viewers left the browser video live.
+- Closing the last browser reader resulted in `sensor_open=false`, `streaming=false`, both subscriber counts zero and a running broker service. Firefox recovered live image upon reopening.
+- After reboot/login, user broker automatically started; the legacy RGB writer was inactive, `/dev/video11` existed under the right name, V4L2 reported ready and the USB sensor remained closed at idle. Firefox and four SDK viewers worked after reboot.
+- Observed V4L2 `dropped=0`, `last_error=""` in sampled statuses. One transient `DepthPacketStreamParser: 7 packets were lost` warning appeared immediately after RGB-to-RGB+IR/Depth stream reconfiguration; not yet known whether sustained streams have gaps.
+
+**Not yet measured:** CPU/RSS under simultaneous readers, abrupt viewer crash with other readers still active, sustained RGB/IR/Depth sequence gaps, privacy-black behavior on stalled capture and multi-distribution startup. These must not be silently counted as passed.
+
+### Optional targeted acceptance checks before merge
+
+While Firefox and the four demo windows are active, inspect the broker process without restarting it:
+
+```bash
+pid=$(systemctl --user show -p MainPID --value kinect2-broker.service)
+ps -p "$pid" -o pid,etime,%cpu,rss,cmd
+PYTHONPATH=sdk/python python3 - <<'PY'
+from kinect2_linux import BrokerClient
+s = BrokerClient().get_status()
+for key in ("frame_counts", "sequence_gaps", "v4l2_rgb", "frame_preview"):
+    print(key, s[key])
+PY
+```
+
+Capture another status after at least 30 seconds of stable streaming to
+distinguish one-time reconfiguration warnings from sustained packet loss.
+To test a client crash, terminate **only a separately launched test
+FrameClient child process**, never the broker service or Firefox. Ensure its
+subscriber count returns to baseline within a few seconds and the other
+viewers continue.
+
+The existing standalone bridge remains installed as a rollback option. A
+successful test on one computer is not a guarantee of general plug-and-play.
