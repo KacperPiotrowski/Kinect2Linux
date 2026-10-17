@@ -23,6 +23,11 @@ struct StreamCounters {
   std::uint64_t rgb_frames = 0;
   std::uint64_t ir_frames = 0;
   std::uint64_t depth_frames = 0;
+  // Gaps in sequence numbers among frames actually delivered by libfreenect2.
+  // These are diagnostics, not a complete accounting of USB/decoder losses.
+  std::uint64_t rgb_seq_gaps = 0;
+  std::uint64_t ir_seq_gaps = 0;
+  std::uint64_t depth_seq_gaps = 0;
 };
 
 class HardwareDevice {
