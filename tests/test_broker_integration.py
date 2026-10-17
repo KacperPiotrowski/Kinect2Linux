@@ -98,6 +98,36 @@ class BrokerIntegrationTests(unittest.TestCase):
         self.assertTrue(BrokerClient(self.path).ping())
         self.assertTrue(BrokerClient(self.path).ping())
 
+    def test_device_control_disabled_by_default(self):
+        # Standard CI/default binary can NEVER claim USB.
+        client = BrokerClient(self.path)
+        with self.assertRaisesRegex(BrokerError, "device_control_disabled"):
+            client.open_device()
+        with self.assertRaisesRegex(BrokerError, "device_control_disabled"):
+            client.close_device()
+        status = client.get_status()
+        self.assertEqual(status["state"], "unavailable")
+        self.assertIs(status["sensor_open"], False)
+        self.assertIs(status["streaming"], False)
+        self.assertIs(status["device_control_enabled"], False)
+
+    def test_hardware_flag_rejected_in_default_build(self):
+        # No opt-in path is silently simulated as a successful physical open.
+        with tempfile.TemporaryDirectory(prefix="kinect2-test-") as tmp:
+            outcome = subprocess.run(
+                [BROKER_BIN, "--socket", str(Path(tmp) / "not-created.sock"),
+                 "--allow-device-control"],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=4,
+            )
+            self.assertNotEqual(outcome.returncode, 0)
+            self.assertFalse((Path(tmp) / "not-created.sock").exists())
+
+    def test_device_operations_reject_unexpected_parameters(self):
+        for op in ("open_device", "close_device"):
+            with self.subTest(op=op), self.assertRaisesRegex(BrokerError, "invalid_arguments"):
+                BrokerClient(self.path).request(op, {"unexpected": True})
+        self.assertTrue(BrokerClient(self.path).ping())
+
     def test_unknown_operation_is_explicit_error(self):
         with self.assertRaisesRegex(BrokerError, "unknown_operation"):
             BrokerClient(self.path).request("does_not_exist")
