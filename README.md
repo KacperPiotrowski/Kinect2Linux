@@ -33,6 +33,23 @@ Założenia: Kinect v2 z zasilaczem i USB 3.0; sąsiedni katalog `../libfreenect
 ./kinect2 build          # most IR, jeśli istnieje libfreenect2-omp
 ```
 
+### Odtwarzalny build libfreenect2-omp — eksperyment (PR #13)
+
+Jeżeli nie masz lokalnych nagłówków `libfreenect2`, nie musisz ich
+kopiować ręcznie. Na gałęzi eksperymentalnej PR #13 można pobrać
+**przypięte źródła OpenKinect razem z `include/`** i nałożyć
+zweryfikowaną poprawkę OpenMP z lokalnej wersji użytkownika:
+
+```bash
+bash tools/bootstrap_libfreenect2_omp.sh
+bash tools/build_broker.sh --with-hardware
+```
+
+Pierwsze pobranie wymaga internetu, a kompilacja wymaga zależności
+CMake/libusb/TurboJPEG; nie zmienia istniejącej kopii `../libfreenect2-omp`.
+**To nie jest jeszcze ukończony instalator ani potwierdzony na sprzęcie
+build.** Szczegóły: [docs/LIBFREENECT2-OMP-SETUP.md](docs/LIBFREENECT2-OMP-SETUP.md).
+
 ### IR i Depth
 
 Zatrzymaj klientów RGB i inne programy otwierające fizyczny sensor przed uruchomieniem mostu IR — **jeden proces jest obecnie właścicielem USB**. Przy nieobecnym `/dev/video10` skonfiguruj `v4l2loopback` zgodnie z instrukcjami systemowymi. W pierwszym terminalu:
