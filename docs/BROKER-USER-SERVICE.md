@@ -121,7 +121,7 @@ devices or repository files.
 
 ```bash
 bash -n tools/run_broker_service.sh tools/install_broker_user.sh
-python3 -m unittest tests.test_broker_user_service -v
+python3 -m unittest discover -s tests -p 'test_broker_user_service.py' -v
 ```
 
 The unit installer tests use a fake `systemctl` and a dummy
