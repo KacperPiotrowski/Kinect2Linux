@@ -23,7 +23,7 @@ Wyniki pochodzą z lokalnych testów na jednym sprzęcie, **nie** z oficjalnej c
 
 ## Szybki start (obecny prototyp — Arch Linux)
 
-Założenia: Kinect v2 z zasilaczem i USB 3.0; sąsiedni katalog `../libfreenect2-omp` z kompilacją `build-omp` i biblioteką `libfreenect2.so`; `v4l2loopback`, `python3`, `numpy`, `opencv` i narzędzie `flock` (z `util-linux`). Nie dostarczamy w tym repozytorium sterownika OpenKinect ani modułu jądra. Ścieżkę biblioteki można ustawić przez `LIBFREENECT2_DIR`.
+Założenia: Kinect v2 z zasilaczem i USB 3.0; biblioteka `libfreenect2-omp` budowana przez `tools/bootstrap_libfreenect2_omp.sh` (lub opcjonalna stara biblioteka w `../libfreenect2-omp`); `v4l2loopback`, `python3`, `numpy`, `opencv` i narzędzie `flock` (z `util-linux`). Nie dostarczamy w tym repozytorium sterownika OpenKinect ani modułu jądra. Ścieżkę biblioteki można ustawić przez `LIBFREENECT2_DIR`.
 
 ```bash
 ./kinect2 status         # tylko diagnostyka: nie otwiera sensora
@@ -32,6 +32,23 @@ Założenia: Kinect v2 z zasilaczem i USB 3.0; sąsiedni katalog `../libfreenect
 ./kinect2 doctor
 ./kinect2 build          # most IR, jeśli istnieje libfreenect2-omp
 ```
+
+### Odtwarzalny build libfreenect2-omp (scalony PR #13)
+
+Jeżeli nie masz lokalnych nagłówków `libfreenect2`, nie musisz ich
+kopiować ręcznie. Można pobrać
+**przypięte źródła OpenKinect razem z `include/`** i nałożyć
+zweryfikowaną poprawkę OpenMP z lokalnej wersji użytkownika:
+
+```bash
+bash tools/bootstrap_libfreenect2_omp.sh
+bash tools/build_broker.sh --with-hardware
+```
+
+Pierwsze pobranie wymaga internetu, a kompilacja wymaga zależności
+CMake/libusb/TurboJPEG; nie zmienia istniejącej kopii `../libfreenect2-omp`.
+**Budowa i podstawowy przechwyt na fizycznym Kinekcie zostały przetestowane
+na Arch Linux; instalator i wielodystrybucyjne testy pozostają planowane.** Szczegóły: [docs/LIBFREENECT2-OMP-SETUP.md](docs/LIBFREENECT2-OMP-SETUP.md).
 
 ### IR i Depth
 

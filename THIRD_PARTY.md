@@ -2,7 +2,7 @@
 
 Kod własny Kinect2-Linux jest publikowany na [licencji MIT](LICENSE). Nie oznacza to, że zależności lub zewnętrzne modele otrzymują licencję MIT.
 
-- [OpenKinect/libfreenect2](https://github.com/OpenKinect/libfreenect2) — osobna biblioteka, dual Apache-2.0 / GPL-2.0 (patrz nagłówki i pliki `APACHE20`, `GPL2`, `CONTRIB` w upstream). Ten projekt korzysta z **lokalnie zbudowanej** biblioteki i nie zamieszcza jej binariów ani forka `-omp`.
+- [OpenKinect/libfreenect2](https://github.com/OpenKinect/libfreenect2) — osobna biblioteka, dual Apache-2.0 / GPL-2.0 (patrz nagłówki i pliki `APACHE20`, `GPL2`, `CONTRIB` w upstream). Projekt korzysta z **lokalnie zbudowanej** biblioteki; nie zamieszcza jej binariów. W PR #13 przygotowano przypięty upstream i **osobny patch OpenMP** z przesłanej lokalnej kopii. Wymagane notices i licencje nadal pochodzą z upstreamu; nie oznaczamy jego kodu licencją MIT Kinect2-Linux.
 - [nlohmann/json](https://github.com/nlohmann/json) — biblioteka JSON dla C++, licencja MIT; broker używa pakietu systemowego z nagłówkami, bez dołączania jej kopii do repozytorium.
 - [v4l2loopback](https://github.com/v4l2loopback/v4l2loopback) — osobny moduł kernela na GPL-2.0-or-later; nie jest kopiowany do repozytorium.
 - OpenCV, dlib, FFmpeg, NumPy, Python, Howdy, MediaPipe — niezależne zależności, każdy projekt ma własne warunki licencyjne. Aktualna dystrybucja źródłowa ich nie vendoryzuje.

@@ -7,8 +7,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
 
 option(KINECT2_ENABLE_HARDWARE "Build opt-in broker with local libfreenect2" OFF)
-set(LIBFREENECT2_DIR "${PROJECT_SOURCE_DIR}/../libfreenect2-omp" CACHE PATH
-    "Existing local patched libfreenect2-omp checkout")
+if(EXISTS "${PROJECT_SOURCE_DIR}/third_party/libfreenect2-omp/include/libfreenect2/libfreenect2.hpp")
+  set(KINECT2_LIBFREENECT2_DEFAULT "${PROJECT_SOURCE_DIR}/third_party/libfreenect2-omp")
+else()
+  set(KINECT2_LIBFREENECT2_DEFAULT "${PROJECT_SOURCE_DIR}/../libfreenect2-omp")
+endif()
+set(LIBFREENECT2_DIR "${KINECT2_LIBFREENECT2_DEFAULT}" CACHE PATH
+    "Pinned local libfreenect2-omp source or legacy adjacent checkout")
 
 add_compile_options(-Wall -Wextra -Wpedantic -Werror)
 find_package(Threads REQUIRED)

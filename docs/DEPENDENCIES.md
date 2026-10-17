@@ -13,4 +13,4 @@ Projekt nie pobiera zewnętrznych bibliotek automatycznie. Nie deklarujemy, że 
 | ALSA (`arecord`) | Natywny test audio 4ch | Bez wymogu PipeWire/EasyEffects |
 | MediaPipe, Pillow i model `.task` | Wstrzymany, offline eksperyment | Nie należy instalować dla podstawowego Kinect SDK |
 
-Wersje i sposób budowania lokalnego `libfreenect2-omp` muszą zostać opisane w osobnej instrukcji przenośnego builda przed pierwszym wydaniem. Aktualne launchery korzystają z lokalnego builda i nie obiecują gotowego plug-and-play.
+Dla eksperymentalnego PR #13 jest przygotowany odtwarzalny sposób pobrania kompletnego `libfreenect2` z przypiętego upstreamu i zbudowania biblioteki z poprawką OpenMP: [LIBFREENECT2-OMP-SETUP.md](LIBFREENECT2-OMP-SETUP.md). Pierwsze pobranie wymaga internetu. **Nie deklarujemy jeszcze działającej instalacji plug-and-play** ani potwierdzonego clean builda na sprzęcie innego użytkownika.
