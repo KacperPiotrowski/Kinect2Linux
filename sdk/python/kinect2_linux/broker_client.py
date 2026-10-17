@@ -86,3 +86,15 @@ class BrokerClient:
     def close_device(self) -> dict[str, Any]:
         """Release the USB handle and flock; safe to call repeatedly."""
         return self.request("close_device")
+
+    def start_streams(self, *, rgb: bool = False, ir_depth: bool = False) -> dict[str, Any]:
+        """Explicitly start native capture (no frame transport to Python yet)."""
+        if type(rgb) is not bool or type(ir_depth) is not bool:
+            raise TypeError("rgb and ir_depth must be booleans")
+        if not rgb and not ir_depth:
+            raise ValueError("select rgb, ir_depth, or both")
+        return self.request("start_streams", {"rgb": rgb, "ir_depth": ir_depth})
+
+    def stop_streams(self) -> dict[str, Any]:
+        """Stop all active native capture without closing the USB device."""
+        return self.request("stop_streams")
