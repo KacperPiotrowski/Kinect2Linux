@@ -35,20 +35,20 @@ class InstallerTests(unittest.TestCase):
         ctl.write_text("""#!/usr/bin/env bash
 if [[ "$1" == --user && "$2" == is-active ]]; then
   if [[ "$3" == kinect2-rgb-webcam.service ]]; then
-    echo "\${MOCK_LEGACY_ACTIVE:-inactive}"
+    echo "${MOCK_LEGACY_ACTIVE:-inactive}"
   else
-    echo "\${MOCK_BROKER_ACTIVE:-inactive}"
+    echo "${MOCK_BROKER_ACTIVE:-inactive}"
   fi
 elif [[ "$1" == --user && "$2" == is-enabled ]]; then
   if [[ "$3" == kinect2-rgb-webcam.service ]]; then
-    echo "\${MOCK_LEGACY_ENABLED:-disabled}"
+    echo "${MOCK_LEGACY_ENABLED:-disabled}"
   else
     echo disabled
   fi
 else
   echo "$*" >> "$MOCK_CALL_LOG"
 fi
-""".replace("\\\${", "\${"))
+""".replace("\\${", "${"))
         ctl.chmod(0o755)
         self.env = dict(os.environ, HOME=str(self.home), MOCK_CALL_LOG=str(self.log))
         self.env["PATH"] = str(self.mockbin) + ":" + os.environ["PATH"]
