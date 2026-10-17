@@ -72,6 +72,16 @@ oświetleniu, natomiast w słabszym świetle automatyczna ekspozycja
 korelowała z RGB 15 FPS. W obu warunkach IR i Depth osiągały
 około 30 FPS; dane z jednego stanowiska nie są ogólną gwarancją.
 
+## Eksperymentalny podgląd wielu klientów (PR #11, jeszcze nie w main)
+
+Osobna gałąź demonstracyjna pozwala zobaczyć **dwa niezależne okna RGB
+oraz dwa niezależne okna IR jednocześnie**, podczas gdy tylko broker
+otwiera fizycznego Kinecta. Wymaga ręcznego włączenia
+`--allow-device-control --frame-preview` i obsługi OpenCV GUI.
+To eksperymentalne rozsyłanie klatek, nie kompletne SDK subskrypcji,
+obsługa V4L2 ani pełne zarządzanie cyklem życia wielu klientów.
+Instrukcja: [cztery okna podglądu](docs/FOUR-CLIENT-PREVIEW.md).
+
 ## Dokumentacja i przykłady
 
 - [Plan przebudowy](docs/REBUILD-PLAN.md) — architektura wspólnego rdzenia i IPC.
