@@ -143,7 +143,8 @@ def main() -> int:
             "Broker requires hardware mode and --frame-preview:\n"
             "  ./bin/kinect2-broker-hw --allow-device-control --frame-preview"
         )
-    if status.get("sensor_open") or status.get("streaming"):
+    automatic = status.get("frame_preview", {}).get("mode") == "automatic"
+    if not automatic and (status.get("sensor_open") or status.get("streaming")):
         raise SystemExit(
             "Device already active; stop the previous benchmark/session first. "
             "This demo deliberately does not steal or close another session."
@@ -153,10 +154,14 @@ def main() -> int:
     opened = False
     started = False
     try:
-        broker.open_device()
-        opened = True
-        broker.start_streams(rgb=True, ir_depth=True)
-        started = True
+        if not automatic:
+            # Legacy explicit-session preview mode remains backwards compatible.
+            broker.open_device()
+            opened = True
+            broker.start_streams(rgb=True, ir_depth=True)
+            started = True
+        # In automatic mode the four child FrameClients own independent
+        # subscriptions. The broker opens/stops USB on demand.
         for stream, name in (
             ("rgb", "Kinect2 RGB A"),
             ("rgb", "Kinect2 RGB B"),
@@ -171,6 +176,9 @@ def main() -> int:
         print("Four independent viewers started. Close individual windows with ESC/Q; "
               "press Ctrl+C here to stop all.", flush=True)
         print("Capture uses ONE Kinect USB owner: the broker.", flush=True)
+        print("Capture lifecycle: " + ("automatic client subscriptions"
+                                       if automatic else "manual demo session"),
+              flush=True)
         print("Viewer queue mode: " + ("ordered (A/B baseline)" if args.ordered_frames
                                       else "latest-frame (low-latency preview)"),
               flush=True)
