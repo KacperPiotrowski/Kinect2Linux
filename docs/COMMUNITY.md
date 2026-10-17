@@ -16,20 +16,23 @@ The project is not affiliated with Microsoft or OpenKinect.
   Linux**; observed 30 FPS per stream under adequate lighting.
 - A C++ broker with one physical USB owner can send raw frames to multiple
   independent Python viewers over a private Unix socket + sealed memfd.
-  The 2 RGB + 2 IR demo and offline transport tests are already on `main`.
-- Legacy standalone RGB webcam output `/dev/video11` is usable in Firefox
-  when the standalone bridge owns the Kinect (not when the broker owns it).
-  Native ALSA microphones remain separate.
+  Automatic capture lifecycle and 2 RGB + 2 IR client support are now on `main`.
+- **Broker-owned** RGB output `/dev/video11` works in Firefox concurrently
+  with two SDK RGB and two IR clients on one tested Arch Linux/KDE computer.
+  The legacy standalone RGB bridge remains available for rollback, but must
+  not run alongside broker-owned V4L2. Native ALSA microphones remain separate.
+
+**Recently merged:**
+- [PR #15](https://github.com/KacperPiotrowski/Kinect2Linux/pull/15):
+  automatic subscription-driven sensor capture and idle USB release.
+- [PR #20](https://github.com/KacperPiotrowski/Kinect2Linux/pull/20):
+  optional, in-process V4L2 RGB output. Firefox + 4 SDK clients and
+  KDE login after reboot were smoke-tested on one physical Kinect.
 
 **In progress:**
-- [PR #15](https://github.com/KacperPiotrowski/Kinect2Linux/pull/15):
-  automatic subscription-driven sensor capture and resilience to temporary
-  missing frames; **Draft, not merged yet**.
-- [Issue #16](https://github.com/KacperPiotrowski/Kinect2Linux/issues/16):
-  one broker user service with an in-process V4L2 adapter, so browser and
-  SDK clients can coexist without opening USB twice.
 - [Issue #12](https://github.com/KacperPiotrowski/Kinect2Linux/issues/12):
-  clean-clone install, API documentation and release acceptance testing.
+  clean-clone installation, release-quality acceptance and contributor docs.
+- Community packaging, multi-distribution tests and an opt-in installer.
 
 The final installer and cross-distribution compatibility still need work.
 No body-tracking, MediaPipe, Howdy/PAM integration or GPU acceleration
@@ -97,10 +100,9 @@ Repository: https://github.com/KacperPiotrowski/Kinect2Linux
 >
 > Kinect2-Linux is an open-source, MIT-licensed project bringing native
 > RGB, IR and Depth data from Kinect v2 to Linux. The current experimental
-> C++ broker already streams real frames to four independent Python
-> viewers (2 RGB + 2 IR) through one USB connection. We're working
-> toward one systemd user service, V4L2 webcam compatibility and an
-> easy-to-install SDK.
+> C++ broker has demonstrated Firefox plus four independent Python viewers
+> (2 RGB + 2 IR) through one USB broker on Arch Linux. We're working
+> toward a safe, reproducible installer and wider Linux testing.
 >
 > It's not 1.0 yet. If you have a Kinect v2, use another Linux distro,
 > or enjoy C++/Python/documentation work, feedback and small PRs are
@@ -113,8 +115,9 @@ Repository: https://github.com/KacperPiotrowski/Kinect2Linux
 > Kinect2-Linux to nieoficjalny projekt open source (MIT) umożliwiający
 > korzystanie z natywnego RGB, IR i Depth. Jeden broker C++ potrafi już
 > przekazywać klatki do czterech niezależnych okien Pythona, bez
-> wielokrotnego otwierania USB. Następne kroki to integracja V4L2 dla
-> Firefoksa, usługa systemd i prosty instalator.
+> wielokrotnego otwierania USB. Firefox i cztery okna
+> SDK mogą już współdzielić Kinecta na testowanym Arch Linuksie;
+> następny krok to prosty instalator i testy na innych dystrybucjach.
 >
 > To wciąż prototyp, nie gotowe 1.0. Masz Kinect v2, inny Linux,
 > pomysł na test albo chcesz pomóc przy kodzie lub dokumentacji?
