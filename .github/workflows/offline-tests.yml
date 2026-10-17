@@ -26,6 +26,8 @@ jobs:
         run: ./bin/test_sensor_backend
       - name: Native RAII USB session tests (fake backend, no Kinect)
         run: ./bin/test_device_session
+      - name: Native RGB sequence gap tracker tests
+        run: ./bin/test_sequence_gap_tracker
       - name: Python unit tests and C++ broker IPC integration
         env:
           KINECT2_BROKER_BIN: ${{ github.workspace }}/bin/kinect2-broker

@@ -125,6 +125,7 @@ class BrokerIntegrationTests(unittest.TestCase):
         self.assertIs(status["streaming"], False)
         self.assertEqual(status["selected"], {"rgb": False, "ir_depth": False})
         self.assertEqual(status["frame_counts"], {"rgb": 0, "ir": 0, "depth": 0})
+        self.assertEqual(status["sequence_gaps"], {"rgb": 0, "ir": 0, "depth": 0})
 
     def test_stream_client_validates_requested_selection(self):
         client = BrokerClient(self.path)

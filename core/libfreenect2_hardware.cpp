@@ -1,4 +1,5 @@
 #include "core/device_session.hpp"
+#include "core/sequence_gap_tracker.hpp"
 
 #ifdef KINECT2_WITH_LIBFREENECT2
 #include <libfreenect2/libfreenect2.hpp>
@@ -48,6 +49,9 @@ class Libfreenect2Hardware final : public kinect2::HardwareDevice {
       rgb_frames_.store(0);
       ir_frames_.store(0);
       depth_frames_.store(0);
+      rgb_gaps_.store(0);
+      ir_gaps_.store(0);
+      depth_gaps_.store(0);
       if (streams.rgb) {
         rgb_listener_ = std::make_unique<libfreenect2::SyncMultiFrameListener>(
             libfreenect2::Frame::Color);
@@ -95,7 +99,8 @@ class Libfreenect2Hardware final : public kinect2::HardwareDevice {
   }
 
   kinect2::StreamCounters counters() const noexcept override {
-    return {rgb_frames_.load(), ir_frames_.load(), depth_frames_.load()};
+    return {rgb_frames_.load(), ir_frames_.load(), depth_frames_.load(),
+            rgb_gaps_.load(), ir_gaps_.load(), depth_gaps_.load()};
   }
 
   void close() noexcept override {
@@ -109,18 +114,25 @@ class Libfreenect2Hardware final : public kinect2::HardwareDevice {
 
  private:
   void pump(libfreenect2::SyncMultiFrameListener* listener) noexcept {
+    kinect2::SequenceGapTracker rgb_sequence, ir_sequence, depth_sequence;
     while (running_.load()) {
       libfreenect2::FrameMap frames;
       try {
         if (!listener->waitForNewFrame(frames, 75)) continue;
         auto count = [&](libfreenect2::Frame::Type type,
-                         std::atomic<std::uint64_t>& counter) {
+                         std::atomic<std::uint64_t>& counter,
+                         std::atomic<std::uint64_t>& gaps,
+                         kinect2::SequenceGapTracker& sequence) {
           const auto it = frames.find(type);
-          if (it != frames.end() && it->second) ++counter;
+          if (it != frames.end() && it->second) {
+            ++counter;
+            gaps.fetch_add(sequence.observe(it->second->sequence),
+                           std::memory_order_relaxed);
+          }
         };
-        count(libfreenect2::Frame::Color, rgb_frames_);
-        count(libfreenect2::Frame::Ir, ir_frames_);
-        count(libfreenect2::Frame::Depth, depth_frames_);
+        count(libfreenect2::Frame::Color, rgb_frames_, rgb_gaps_, rgb_sequence);
+        count(libfreenect2::Frame::Ir, ir_frames_, ir_gaps_, ir_sequence);
+        count(libfreenect2::Frame::Depth, depth_frames_, depth_gaps_, depth_sequence);
         listener->release(frames);
       } catch (...) {
         // Stop capture on unexpected native listener failures. Device close
@@ -141,6 +153,9 @@ class Libfreenect2Hardware final : public kinect2::HardwareDevice {
   std::atomic<std::uint64_t> rgb_frames_{0};
   std::atomic<std::uint64_t> ir_frames_{0};
   std::atomic<std::uint64_t> depth_frames_{0};
+  std::atomic<std::uint64_t> rgb_gaps_{0};
+  std::atomic<std::uint64_t> ir_gaps_{0};
+  std::atomic<std::uint64_t> depth_gaps_{0};
   bool started_ = false;
 };
 

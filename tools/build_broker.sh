@@ -29,4 +29,7 @@ fi
 "$CXX" -std=c++23 -O2 -Wall -Wextra -Wpedantic -Werror -I"$ROOT" \
   "$ROOT/tests/native/test_device_session.cpp" "$ROOT/core/device_session.cpp" \
   -o "$ROOT/bin/test_device_session"
+"$CXX" -std=c++23 -O2 -Wall -Wextra -Wpedantic -Werror -I"$ROOT" \
+  "$ROOT/tests/native/test_sequence_gap_tracker.cpp" \
+  -o "$ROOT/bin/test_sequence_gap_tracker"
 printf "Built: %s and native tests\n" "$TARGET"
