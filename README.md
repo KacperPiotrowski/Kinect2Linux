@@ -31,6 +31,25 @@ Wyniki pochodzą z lokalnych testów na jednym sprzęcie, **nie** z oficjalnej c
 
 ## Szybki start (obecny prototyp — Arch Linux)
 
+
+### Instalator krok po kroku (eksperymentalny, Arch Linux)
+
+Przed pierwszą instalacją przeczytaj
+[pełną instrukcję i rollback](docs/INSTALL.md). Skrypt nie używa
+automatycznie `sudo` ani `pacman`, nie usuwa starych usług i nie
+przejmuje USB bez Twojej zgody.
+
+```bash
+bash tools/install_kinect2.sh --check    # tylko odczyt, bez zmian
+bash tools/install_kinect2.sh --prepare  # zbuduj i przygotuj wyłączoną usługę
+# Po osobnym skonfigurowaniu /dev/video11 i zatrzymaniu legacy:
+bash tools/install_kinect2.sh --activate # jawnie uruchom brokera RGB
+```
+
+To **pierwsza wersja instalatora do testów społeczności**, a nie
+potwierdzona instalacja plug-and-play na wielu dystrybucjach.
+
+
 Założenia: Kinect v2 z zasilaczem i USB 3.0; biblioteka `libfreenect2-omp` budowana przez `tools/bootstrap_libfreenect2_omp.sh` (lub opcjonalna stara biblioteka w `../libfreenect2-omp`); `v4l2loopback`, `python3`, `numpy`, `opencv` i narzędzie `flock` (z `util-linux`). Nie dostarczamy w tym repozytorium sterownika OpenKinect ani modułu jądra. Ścieżkę biblioteki można ustawić przez `LIBFREENECT2_DIR`.
 
 ```bash
@@ -124,11 +143,12 @@ Procedury i rollback:
 [broker i Firefox](docs/BROKER-V4L2-RGB.md),
 [usługa użytkownika](docs/BROKER-USER-SERVICE.md),
 [cztery podglądy](docs/FOUR-CLIENT-PREVIEW.md).
-Planowany jest bezpieczny instalator; nie reklamujemy jeszcze
-instalacji „jednym kliknięciem”.
+Dostępny jest [eksperymentalny instalator prowadzony](docs/INSTALL.md),
+bez automatycznych operacji administratora; nie jest to jeszcze instalacja „jednym kliknięciem”.
 
 ## Dokumentacja i przykłady
 
+- [Instalacja (Arch Linux, eksperymentalna)](docs/INSTALL.md) — check, prepare, activate, powrót.
 - [Plan przebudowy](docs/REBUILD-PLAN.md) — architektura wspólnego rdzenia i IPC.
 - [Status API](docs/STATUS.md) oraz [Live Status](docs/LIVE-STATUS.md) — odczyt bez otwierania USB.
 - [RGB on-demand (legacy)](docs/RGB-ON-DEMAND.md) i [wspólny broker V4L2](docs/BROKER-V4L2-RGB.md) — starszy producent RGB kontra nowy broker.
