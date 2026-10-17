@@ -12,6 +12,7 @@
 #include <nlohmann/json.hpp>
 #include "core/sensor_backend.hpp"
 #include "core/device_session.hpp"
+#include "core/frame_hub.hpp"
 #include "core/worker_process.hpp"
 #include <memory>
 #include <vector>
@@ -99,7 +100,8 @@ void send_json(int fd, const std::string& body) {
 
 void handle_client(int fd, const kinect2::SensorBackend& backend,
                    kinect2::DeviceSession* device_session,
-                   kinect2::WorkerProcess* worker_process) {
+                   kinect2::WorkerProcess* worker_process,
+                   kinect2::FrameHub* frame_hub) {
   struct ucred peer {};
   socklen_t size = sizeof(peer);
   if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &peer, &size) != 0 ||
@@ -151,11 +153,14 @@ void handle_client(int fd, const kinect2::SensorBackend& backend,
       {"sensor_open", opened},
       {"streaming", streaming}, // active capture configuration, not health proof
       {"device_control_enabled", device_session != nullptr},
+      {"frame_preview", {{"enabled", frame_hub != nullptr},
+                         {"subscribers", frame_hub ? frame_hub->subscriber_count() : 0}}},
       {"worker", {{"enabled", worker_process != nullptr},
                   {"pid", worker_process ? worker_process->pid() : 0},
                   {"healthy", worker_process && worker_process->ping()}}},
       {"reason", !device_session ? "sensor_backend_not_implemented" :
-                                    "frame_transport_not_implemented"},
+                  (frame_hub ? "experimental_frame_preview" :
+                               "frame_transport_not_implemented")},
       {"selected", {{"rgb", selected.rgb}, {"ir_depth", selected.ir_depth}}},
       {"frame_counts", {{"rgb", counters.rgb_frames},
                         {"ir", counters.ir_frames},
@@ -257,9 +262,10 @@ bool valid_private_parent(const std::string& path) {
 int main(int argc, char** argv) {
   std::string path;
   bool allow_device_control = false;
+  bool enable_frame_preview = false;
   std::string worker_executable;
   if (argc == 2 && std::string_view(argv[1]) == "--help") {
-    std::cout << "Usage: kinect2-broker [--socket PATH] [--allow-device-control] [--worker /ABS/PATH]\n"
+    std::cout << "Usage: kinect2-broker [--socket PATH] [--allow-device-control] [--worker /ABS/PATH] [--frame-preview]\n"
                  "Device control requires a separate --with-hardware build.\n";
     return 0;
   }
@@ -268,12 +274,18 @@ int main(int argc, char** argv) {
     if (arg == "--socket" && i + 1 < argc && path.empty()) path = argv[++i];
     else if (arg == "--allow-device-control" && !allow_device_control)
       allow_device_control = true;
+    else if (arg == "--frame-preview" && !enable_frame_preview)
+      enable_frame_preview = true;
     else if (arg == "--worker" && worker_executable.empty() && i + 1 < argc)
       worker_executable = argv[++i];
     else {
       std::cerr << "Usage: kinect2-broker [--socket PATH] [--allow-device-control]\n";
       return 2;
     }
+  }
+  if (enable_frame_preview && !allow_device_control) {
+    std::cerr << "--frame-preview requires --allow-device-control.\n";
+    return 2;
   }
   const char* runtime_dir = getenv("XDG_RUNTIME_DIR");
   if (path.empty() && runtime_dir)
@@ -338,6 +350,19 @@ int main(int argc, char** argv) {
     std::cerr << "Unsafe socket permissions.\n";
     close(server); unlink(path.c_str()); return 1;
   }
+  std::unique_ptr<kinect2::FrameHub> frame_hub;
+  if (enable_frame_preview) {
+    frame_hub = std::make_unique<kinect2::FrameHub>();
+    const std::string frame_path = std::string(runtime_dir) + "/kinect2-frames.sock";
+    if (!frame_hub->start(frame_path)) {
+      std::cerr << "Cannot create private frame-preview socket: " << frame_path << '\n';
+      close(server);
+      unlink(path.c_str()); // Verified inode created by this process above.
+      return 2;
+    }
+    device_session->set_frame_sink(frame_hub.get());
+    std::cout << "Experimental frame preview socket: " << frame_path << '\n';
+  }
   kinect2::SysfsSensorBackend sensor_backend;
   std::cout << "Kinect2 broker control socket ready: " << path
             << (device_session ? " (hardware control enabled; capture opt-in)\n" :
@@ -350,11 +375,12 @@ int main(int argc, char** argv) {
       perror("accept"); break;
     }
     handle_client(client, sensor_backend, device_session.get(),
-                  worker_process.get());
+                  worker_process.get(), frame_hub.get());
     close(client);
   }
   worker_process.reset(); // Gracefully stop/reap child before broker exits.
-  device_session.reset(); // Always release USB handle and flock before exit.
+  device_session.reset(); // Join capture pumps BEFORE closing frame hub.
+  frame_hub.reset();
   close(server);
   // Avoid removing a path that was replaced while the server was running.
   struct stat current {};

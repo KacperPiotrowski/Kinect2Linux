@@ -1,4 +1,5 @@
 #include "core/device_session.hpp"
+#include "core/frame_hub.hpp"
 #include "core/sequence_gap_tracker.hpp"
 
 #ifdef KINECT2_WITH_LIBFREENECT2
@@ -14,8 +15,8 @@
 
 namespace {
 
-// Collect only frame counts. All frame buffers remain native in libfreenect2;
-// no RGB/IR/Depth bytes are delivered over IPC in this change.
+// Capture once from USB; optional frame sink fans out immutable snapshots.
+// Existing capture counters work independently of preview subscriptions.
 class Libfreenect2Hardware final : public kinect2::HardwareDevice {
  public:
   ~Libfreenect2Hardware() override { close(); }
@@ -98,6 +99,8 @@ class Libfreenect2Hardware final : public kinect2::HardwareDevice {
     ir_depth_listener_.reset();
   }
 
+  void set_frame_sink(kinect2::FrameSink* sink) noexcept override { sink_ = sink; }
+
   kinect2::StreamCounters counters() const noexcept override {
     return {rgb_frames_.load(), ir_frames_.load(), depth_frames_.load(),
             rgb_gaps_.load(), ir_gaps_.load(), depth_gaps_.load()};
@@ -120,6 +123,7 @@ class Libfreenect2Hardware final : public kinect2::HardwareDevice {
       try {
         if (!listener->waitForNewFrame(frames, 75)) continue;
         auto count = [&](libfreenect2::Frame::Type type,
+                         kinect2::FrameKind kind,
                          std::atomic<std::uint64_t>& counter,
                          std::atomic<std::uint64_t>& gaps,
                          kinect2::SequenceGapTracker& sequence) {
@@ -128,11 +132,21 @@ class Libfreenect2Hardware final : public kinect2::HardwareDevice {
             ++counter;
             gaps.fetch_add(sequence.observe(it->second->sequence),
                            std::memory_order_relaxed);
+            if (sink_) {
+              sink_->publish(kind, it->second->data,
+                             static_cast<std::uint32_t>(it->second->width),
+                             static_cast<std::uint32_t>(it->second->height),
+                             static_cast<std::uint32_t>(it->second->bytes_per_pixel),
+                             it->second->sequence);
+            }
           }
         };
-        count(libfreenect2::Frame::Color, rgb_frames_, rgb_gaps_, rgb_sequence);
-        count(libfreenect2::Frame::Ir, ir_frames_, ir_gaps_, ir_sequence);
-        count(libfreenect2::Frame::Depth, depth_frames_, depth_gaps_, depth_sequence);
+        count(libfreenect2::Frame::Color, kinect2::FrameKind::rgb,
+              rgb_frames_, rgb_gaps_, rgb_sequence);
+        count(libfreenect2::Frame::Ir, kinect2::FrameKind::ir,
+              ir_frames_, ir_gaps_, ir_sequence);
+        count(libfreenect2::Frame::Depth, kinect2::FrameKind::depth,
+              depth_frames_, depth_gaps_, depth_sequence);
         listener->release(frames);
       } catch (...) {
         // Stop capture on unexpected native listener failures. Device close
@@ -156,6 +170,7 @@ class Libfreenect2Hardware final : public kinect2::HardwareDevice {
   std::atomic<std::uint64_t> rgb_gaps_{0};
   std::atomic<std::uint64_t> ir_gaps_{0};
   std::atomic<std::uint64_t> depth_gaps_{0};
+  kinect2::FrameSink* sink_ = nullptr; // Owned by broker, outlives this device.
   bool started_ = false;
 };
 

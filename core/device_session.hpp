@@ -7,6 +7,8 @@
 
 namespace kinect2 {
 
+class FrameSink;
+
 struct ControlResult {
   bool ok;
   std::string code;
@@ -38,6 +40,9 @@ class HardwareDevice {
   virtual ControlResult start_streams(StreamSelection streams) = 0;
   virtual void stop_streams() noexcept = 0;
   virtual StreamCounters counters() const noexcept = 0;
+  // Optional, controlled by broker; fake backends remain unchanged.
+  virtual void set_frame_sink(FrameSink*) noexcept {}
+
 };
 
 // nullptr in the hardware-free build, even if CLI opt-in is requested.
@@ -61,6 +66,8 @@ class DeviceSession final {
   [[nodiscard]] bool is_streaming() const noexcept { return streaming_; }
   [[nodiscard]] StreamSelection selection() const noexcept { return selection_; }
   [[nodiscard]] StreamCounters counters() const noexcept;
+  void set_frame_sink(FrameSink* sink) noexcept { if (device_) device_->set_frame_sink(sink); }
+
 
  private:
   void release_lock() noexcept;
