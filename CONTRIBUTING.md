@@ -2,6 +2,30 @@
 
 Cel: SDK do Kinect v2 na Linuksa, docelowo plug-and-play, z natywnym dostępem do sygnałów. Obecny kod nadal ma etap prototypowy; patrz [plan](docs/REBUILD-PLAN.md).
 
+## Jak możesz pomóc / How to help
+
+Nie musisz mieć Kinecta ani zaawansowanego GPU, żeby pomóc. Potrzebujemy
+przede wszystkim **testów na innych dystrybucjach**, czytelnej instalacji,
+dokumentacji i poprawek testów bez sprzętu. Jeśli dopiero zaczynasz, zobacz
+[otwarte zadania](https://github.com/KacperPiotrowski/Kinect2Linux/issues)
+i poszukaj etykiety `good first issue` lub `help wanted`.
+Przed większą zmianą napisz w odpowiednim issue, żebyśmy nie dublowali pracy.
+
+**English:** Hardware owners can test USB detection, native RGB/IR/Depth
+capture, the broker and the V4L2 webcam on different Linux distributions.
+No Kinect? Offline unit tests, documentation, CI, packaging research and
+reproducible build reports are also welcome. Please start with a scoped GitHub
+issue before large architectural changes. Do not open another physical USB
+capture path: the architecture targets one exclusive broker owning Kinect USB.
+
+When opening an issue, include your Linux distribution, kernel, architecture,
+relevant setup steps, expected versus actual behavior and *sanitized* errors.
+Keep sensor serial numbers, usernames, home paths, face/audio recordings,
+screenshots containing people and private configuration out of public reports.
+
+See: [Community / Dołącz do nas](docs/COMMUNITY.md) and
+[release-readiness tracking](https://github.com/KacperPiotrowski/Kinect2Linux/issues/12).
+
 ## Przed pull requestem
 
 1. Pracuj na gałęzi Git. Nie wprowadzaj jednocześnie zmian do libfreenect2, mostu RGB, skryptów systemd i interfejsu Pythona; ogranicz zakres i opisz plan wycofania.
