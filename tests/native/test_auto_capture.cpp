@@ -57,15 +57,28 @@ int main() {
            session.selection().ir_depth);
     assert(fake->starts == 2 && fake->stops == 1);
 
+    // Regression: IR clients disappear while RGB clients are still active.
+    // Native stop/start may blink the Kinect status LED, but we must NOT
+    // close/reopen USB, release its lock, or kill remaining RGB subscribers.
+    auto_capture.reconcile({1, 0, 0});
+    assert(session.is_open() && session.is_streaming());
+    assert(session.selection().rgb && !session.selection().ir_depth);
+    assert(fake->opens == 1 && fake->closes == 0);
+    assert(fake->starts == 3 && fake->stops == 2);
+
+    auto_capture.reconcile({1, 1, 0}); // IR comes back, RGB survives
+    assert(session.is_streaming() && fake->opens == 1 && fake->closes == 0);
+    assert(fake->starts == 4 && fake->stops == 3);
+
     auto_capture.reconcile({1, 0, 1});  // switch IR -> Depth, no restart
-    assert(session.is_streaming() && fake->starts == 2);
+    assert(session.is_streaming() && fake->starts == 4);
     auto_capture.reconcile({0, 0, 1});  // RGB leaves, Depth remains
     assert(session.is_streaming() && !session.selection().rgb &&
-           session.selection().ir_depth && fake->starts == 3);
+           session.selection().ir_depth && fake->starts == 5);
     auto_capture.reconcile({});         // final Depth leaves -> release USB
     assert(!session.is_open() && !session.is_streaming());
     assert(fake->closes == 1);
-    assert(fake->stops == 3);
+    assert(fake->stops == 5);
 
     fake->fail_open = true;
     auto_capture.reconcile({0, 1, 0});
