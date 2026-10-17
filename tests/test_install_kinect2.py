@@ -149,7 +149,7 @@ fi
         launcher.unlink()
         launcher.symlink_to(self.repo / "tools/run_broker_service.sh")
         unit = self.home / ".config/systemd/user/kinect2-broker.service"
-        unit.write_text("# Managed by Kinect2-Linux broker installer.\\nExecStart=/usr/bin/true\\n")
+        unit.write_text("# Managed by Kinect2-Linux broker installer.\nExecStart=/usr/bin/true\n")
         result = self.call("--activate")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("ExecStart", result.stderr)
