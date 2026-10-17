@@ -12,6 +12,7 @@
 #include <nlohmann/json.hpp>
 #include "core/sensor_backend.hpp"
 #include "core/device_session.hpp"
+#include "core/worker_process.hpp"
 #include <memory>
 #include <vector>
 #include <stdexcept>
@@ -97,7 +98,8 @@ void send_json(int fd, const std::string& body) {
 }
 
 void handle_client(int fd, const kinect2::SensorBackend& backend,
-                   kinect2::DeviceSession* device_session) {
+                   kinect2::DeviceSession* device_session,
+                   kinect2::WorkerProcess* worker_process) {
   struct ucred peer {};
   socklen_t size = sizeof(peer);
   if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &peer, &size) != 0 ||
@@ -149,6 +151,9 @@ void handle_client(int fd, const kinect2::SensorBackend& backend,
       {"sensor_open", opened},
       {"streaming", streaming}, // active capture configuration, not health proof
       {"device_control_enabled", device_session != nullptr},
+      {"worker", {{"enabled", worker_process != nullptr},
+                  {"pid", worker_process ? worker_process->pid() : 0},
+                  {"healthy", worker_process && worker_process->ping()}}},
       {"reason", !device_session ? "sensor_backend_not_implemented" :
                                     "frame_transport_not_implemented"},
       {"selected", {{"rgb", selected.rgb}, {"ir_depth", selected.ir_depth}}},
@@ -249,8 +254,9 @@ bool valid_private_parent(const std::string& path) {
 int main(int argc, char** argv) {
   std::string path;
   bool allow_device_control = false;
+  std::string worker_executable;
   if (argc == 2 && std::string_view(argv[1]) == "--help") {
-    std::cout << "Usage: kinect2-broker [--socket PATH] [--allow-device-control]\n"
+    std::cout << "Usage: kinect2-broker [--socket PATH] [--allow-device-control] [--worker /ABS/PATH]\n"
                  "Device control requires a separate --with-hardware build.\n";
     return 0;
   }
@@ -259,6 +265,8 @@ int main(int argc, char** argv) {
     if (arg == "--socket" && i + 1 < argc && path.empty()) path = argv[++i];
     else if (arg == "--allow-device-control" && !allow_device_control)
       allow_device_control = true;
+    else if (arg == "--worker" && worker_executable.empty() && i + 1 < argc)
+      worker_executable = argv[++i];
     else {
       std::cerr << "Usage: kinect2-broker [--socket PATH] [--allow-device-control]\n";
       return 2;
@@ -298,6 +306,16 @@ int main(int argc, char** argv) {
   sigemptyset(&sa.sa_mask);
   sigaction(SIGINT, &sa, nullptr);
   sigaction(SIGTERM, &sa, nullptr);
+  // Spawn before creating the broker listener or opening USB. The child gets
+  // only one private IPC descriptor and is never a second sensor owner.
+  std::unique_ptr<kinect2::WorkerProcess> worker_process;
+  if (!worker_executable.empty()) {
+    worker_process = std::make_unique<kinect2::WorkerProcess>();
+    if (!worker_process->start(worker_executable)) {
+      std::cerr << "Cannot start supervised worker (verify absolute owned executable).\n";
+      return 2;
+    }
+  }
   const mode_t old_mask = umask(0077);
   const int server = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
   if (server < 0) { umask(old_mask); perror("socket"); return 1; }
@@ -328,9 +346,11 @@ int main(int argc, char** argv) {
       if (errno == EINTR) continue;
       perror("accept"); break;
     }
-    handle_client(client, sensor_backend, device_session.get());
+    handle_client(client, sensor_backend, device_session.get(),
+                  worker_process.get());
     close(client);
   }
+  worker_process.reset(); // Gracefully stop/reap child before broker exits.
   device_session.reset(); // Always release USB handle and flock before exit.
   close(server);
   // Avoid removing a path that was replaced while the server was running.
