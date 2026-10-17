@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Guided opt-in installation. Never runs sudo, installs packages, or disables legacy services.
 set -euo pipefail
-ROOT="$(cd -- "$(dirname -- "\${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 LEGACY=kinect2-rgb-webcam.service
 BROKER=kinect2-broker.service
 DEVICE=/dev/video11
@@ -25,7 +25,7 @@ fail() { printf '[kinect2] ERROR: %s\n' "$*" >&2; exit 2; }
 check_user() {
   [[ $(uname -s) == Linux ]] || fail "Only Linux is supported."
   [[ $EUID -ne 0 ]] || fail "Run as your ordinary user, not sudo."
-  [[ -n \${HOME:-} && -d $HOME ]] || fail "Missing HOME directory."
+  [[ -n ${HOME:-} && -d $HOME ]] || fail "Missing HOME directory."
 }
 service_state() { systemctl --user "$1" "$2" 2>/dev/null || true; }
 
@@ -106,7 +106,7 @@ activate() {
   log 'Rollback instructions: docs/INSTALL.md.'
 }
 [[ $# -le 1 ]] || { usage >&2; exit 2; }
-case "\${1:---check}" in
+case "${1:---check}" in
   -h|--help) usage ;;
   --check) preflight ;;
   --prepare) prepare ;;
