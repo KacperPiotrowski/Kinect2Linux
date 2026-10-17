@@ -151,6 +151,37 @@ std::size_t FrameHub::subscriber_count() const noexcept {
   return clients_.size();
 }
 
+SubscriptionCounts FrameHub::subscriptions() const noexcept {
+  std::lock_guard<std::mutex> lock(mutex_);
+  SubscriptionCounts count{};
+  for (const auto& client : clients_) {
+    switch (client.kind) {
+      case FrameKind::rgb: ++count.rgb; break;
+      case FrameKind::ir: ++count.ir; break;
+      case FrameKind::depth: ++count.depth; break;
+    }
+  }
+  return count;
+}
+
+void FrameHub::reap_disconnected() noexcept {
+  std::lock_guard<std::mutex> lock(mutex_);
+  for (auto it = clients_.begin(); it != clients_.end();) {
+    // POLLRDHUP catches a local Unix peer shutdown even if it stopped
+    // receiving frames. POLLIN means the client sent unexpected data or
+    // has disconnected; both close this one-way subscriber protocol.
+    pollfd event{it->fd, POLLIN | POLLRDHUP, 0};
+    const int status = ::poll(&event, 1, 0);
+    if (status > 0 && (event.revents &
+        (POLLHUP | POLLERR | POLLNVAL | POLLRDHUP | POLLIN))) {
+      ::close(it->fd);
+      it = clients_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
 void FrameHub::accept_loop() noexcept {
   while (running_.load()) {
     pollfd event{server_fd_, POLLIN, 0};

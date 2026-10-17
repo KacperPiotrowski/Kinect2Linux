@@ -24,8 +24,9 @@ add_library(kinect2_session STATIC core/device_session.cpp)
 add_library(kinect2_hardware_stub STATIC core/libfreenect2_hardware.cpp)
 add_library(kinect2_worker_supervisor STATIC core/worker_process.cpp)
 add_library(kinect2_frame_hub STATIC core/frame_hub.cpp)
+add_library(kinect2_auto_capture STATIC core/auto_capture.cpp)
 foreach(target kinect2_discovery kinect2_session kinect2_hardware_stub
-               kinect2_worker_supervisor kinect2_frame_hub)
+               kinect2_worker_supervisor kinect2_frame_hub kinect2_auto_capture)
   target_include_directories(${target} PUBLIC "${PROJECT_SOURCE_DIR}")
 endforeach()
 
@@ -34,7 +35,8 @@ target_link_libraries(kinect2-worker PRIVATE Threads::Threads)
 
 add_executable(kinect2-broker src/kinect_broker.cpp)
 target_link_libraries(kinect2-broker PRIVATE kinect2_discovery kinect2_session
-  kinect2_hardware_stub kinect2_worker_supervisor kinect2_frame_hub Threads::Threads)
+  kinect2_hardware_stub kinect2_worker_supervisor kinect2_frame_hub
+  kinect2_auto_capture Threads::Threads)
 
 if(KINECT2_ENABLE_HARDWARE)
   set(KINECT2_SO_DIR "${LIBFREENECT2_DIR}/build-omp/lib")
@@ -53,7 +55,7 @@ if(KINECT2_ENABLE_HARDWARE)
   add_executable(kinect2-broker-hw src/kinect_broker.cpp)
   target_link_libraries(kinect2-broker-hw PRIVATE kinect2_discovery
     kinect2_session kinect2_hardware_native kinect2_worker_supervisor
-    kinect2_frame_hub kinect2_local_freenect2 Threads::Threads)
+    kinect2_frame_hub kinect2_auto_capture kinect2_local_freenect2 Threads::Threads)
   set_target_properties(kinect2-broker-hw PROPERTIES
     BUILD_RPATH "${KINECT2_SO_DIR}")
 endif()
@@ -75,12 +77,17 @@ add_executable(test_frame_hub tests/native/test_frame_hub.cpp)
 target_link_libraries(test_frame_hub PRIVATE kinect2_frame_hub Threads::Threads)
 add_test(NAME frame_hub COMMAND test_frame_hub)
 
+add_executable(test_auto_capture tests/native/test_auto_capture.cpp)
+target_link_libraries(test_auto_capture PRIVATE kinect2_auto_capture kinect2_session
+  kinect2_frame_hub Threads::Threads)
+add_test(NAME auto_capture COMMAND test_auto_capture)
+
 add_executable(test_worker_process tests/native/test_worker_process.cpp)
 target_link_libraries(test_worker_process PRIVATE kinect2_worker_supervisor)
 add_test(NAME worker_process COMMAND test_worker_process "$<TARGET_FILE:kinect2-worker>")
 
 # Existing native tests use assert() with meaningful side effects. CMake
 # Release defines NDEBUG, so explicitly keep assertions enabled in test code.
-foreach(test_target test_sensor_backend test_device_session test_sequence_gap_tracker test_frame_hub test_worker_process)
+foreach(test_target test_sensor_backend test_device_session test_sequence_gap_tracker test_frame_hub test_auto_capture test_worker_process)
   target_compile_options(${test_target} PRIVATE -UNDEBUG)
 endforeach()

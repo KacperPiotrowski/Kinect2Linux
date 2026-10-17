@@ -74,6 +74,9 @@ int main() {
   const int ir1 = subscribe(path, 'I');
   const int ir2 = subscribe(path, 'I');
   assert(hub.subscriber_count() == 4);
+  auto subscribed = hub.subscriptions();
+  assert(subscribed.rgb == 2 && subscribed.ir == 2 &&
+         subscribed.depth == 0 && subscribed.total() == 4);
   const std::array<std::uint8_t, 16> bytes{1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
   hub.publish(kinect2::FrameKind::rgb, bytes.data(), 2, 2, 4, 123);
   hub.publish(kinect2::FrameKind::ir, bytes.data(), 2, 2, 4, 124);
@@ -81,7 +84,21 @@ int main() {
   verify(rgb2, 1, 123, bytes);
   verify(ir1, 2, 124, bytes);
   verify(ir2, 2, 124, bytes);
-  ::close(rgb1); ::close(rgb2); ::close(ir1); ::close(ir2);
+  // If the last viewer closes during a sensor pause, the broker needs to
+  // learn about it without waiting for the next FrameHub::publish().
+  ::close(rgb1);
+  for (int i = 0; i < 50 && hub.subscriptions().rgb != 1; ++i) {
+    hub.reap_disconnected();
+    ::usleep(2000);
+  }
+  subscribed = hub.subscriptions();
+  assert(subscribed.rgb == 1 && subscribed.ir == 2);
+  ::close(rgb2); ::close(ir1); ::close(ir2);
+  for (int i = 0; i < 50 && hub.subscriber_count() != 0; ++i) {
+    hub.reap_disconnected();
+    ::usleep(2000);
+  }
+  assert(hub.subscriber_count() == 0);
   hub.stop();
   assert(!std::filesystem::exists(path));
   assert(hub.subscriber_count() == 0);
