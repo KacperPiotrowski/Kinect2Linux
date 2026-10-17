@@ -7,7 +7,10 @@ gniazdo Unix, nie otwierają libfreenect2 ani sensora.
 
 ## Wymagania
 
-- Arch Linux, fizyczny Kinect v2 i lokalny libfreenect2-omp.
+- Arch Linux, fizyczny Kinect v2 i biblioteka `libfreenect2-omp`
+  z przypiętych źródeł: `bash tools/bootstrap_libfreenect2_omp.sh`.
+  Pierwsze pobranie wymaga internetu; na Arch biblioteka i patch OpenMP
+  przeszły już prawdziwy test 30 FPS RGB/IR/Depth na jednym urządzeniu.
 - CMake, Ninja, GCC/C++23 i nlohmann-json.
 - Python, numpy oraz OpenCV **z GUI (HighGUI, cv2.imshow)**;
   pakiet opencv-python-headless nie wyświetla okien.
@@ -17,13 +20,17 @@ gniazdo Unix, nie otwierają libfreenect2 ani sensora.
 ## Instrukcja
 
     git fetch origin
-    git switch --track origin/feat/preview-four-clients
+    git switch feat/preview-four-clients
+    git pull --ff-only
+    bash tools/bootstrap_libfreenect2_omp.sh
     bash tools/build_broker.sh --with-hardware
+    ldd ./bin/kinect2-broker-hw | grep libfreenect2
     ./bin/test_frame_hub
     ./bin/test_sequence_gap_tracker
 
 Terminal 1 — świadome zezwolenie na hardware i eksperymentalny frame IPC:
 
+    OMP_NUM_THREADS=4 OMP_DYNAMIC=FALSE \
     ./bin/kinect2-broker-hw --allow-device-control --frame-preview \
       --worker "$PWD/bin/kinect2-worker"
 
@@ -90,7 +97,8 @@ Nie można otwierać Kinecta z innego procesu.
   nie zaimplementowano jeszcze per-client automatycznego zarządzania USB
   i dynamicznego wybierania uruchamianych strumieni.
 - W trybie --frame-preview rośnie zużycie RAM i przepustowość pamięci.
-  Dopiero lokalny test pokaże wpływ na wydajność.
+  Dotychczasowy test 4 klientów z OpenMP=4 wskazywał około 25% całego
+  Ryzen 9 7900; wynik zależy od oświetlenia, FPS i renderowania.
 - Nie zmieniamy mostów RGB/IR/Depth V4L2 i audio ALSA ani kontrolera
   ekspozycji.
 - FPS okien (renderowanie) nie oznacza dokładnie FPS urządzenia.
@@ -108,3 +116,11 @@ Nie mamy jeszcze fizycznego pomiaru latencji — test najświeższej klatki
 oraz parametr broker-age ma pomóc odróżnić zaległości IPC/GUI od
 opóźnienia wcześniejszej ścieżki przetwarzania.
 
+
+## PR #13 — aktualizacja bazy
+
+Biblioteka z brakującymi wcześniej nagłówkami jest już przygotowywana
+przez `tools/bootstrap_libfreenect2_omp.sh` (PR #13 scalony do main).
+PR #11 został zsynchronizowany z tą zmianą, ale trzeba jeszcze
+potwierdzić nowe połączenie **broker z FrameHub + przypięte libfreenect2**
+na sprzęcie, w czterech niezależnych GUI. Bez tego PR #11 pozostaje Draft.
