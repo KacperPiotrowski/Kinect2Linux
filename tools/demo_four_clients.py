@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "sdk" / "python"))
 
 from kinect2_linux import BrokerClient, BrokerError  # noqa: E402
-from kinect2_linux.frame_client import FrameClient  # noqa: E402
+from kinect2_linux.frame_client import FrameClient, FrameTimeoutError  # noqa: E402
 
 
 def window_is_open(cv2, label: str) -> bool:
@@ -54,7 +54,10 @@ def viewer(stream: str, label: str, *, latest: bool = True) -> None:
     displayed = 0
     fps = 0.0
     skipped_total = 0
-    with FrameClient(stream, timeout=10) as client:
+    waiting = False
+    last_warning = 0.0
+    # A short receive deadline keeps the GUI responsive if USB stalls.
+    with FrameClient(stream, timeout=2) as client:
         try:
             while True:
                 # Process pending native window-close events *before* the next
@@ -64,8 +67,27 @@ def viewer(stream: str, label: str, *, latest: bool = True) -> None:
                     break
                 # Interactive previews skip packets already superseded in
                 # this client\u0027s socket queue; capture still runs unchanged.
-                frame, skipped = (client.receive_latest() if latest
-                                  else (client.receive(), 0))
+                try:
+                    frame, skipped = (client.receive_latest() if latest
+                                      else (client.receive(), 0))
+                except FrameTimeoutError:
+                    # The sensor may be switching streams or temporarily
+                    # unavailable; this is NOT invalid IPC. Keep the window
+                    # and subscription open, process X/Esc/Q on next loop.
+                    now = time.monotonic()
+                    if not waiting or now - last_warning >= 10:
+                        print(f"{label}: no {stream.upper()} frames in 2s; "
+                              "still waiting for the broker (Esc/Q/X to close).",
+                              file=sys.stderr, flush=True)
+                        last_warning = now
+                    waiting = True
+                    continue
+                if waiting:
+                    print(f"{label}: {stream.upper()} frames resumed.",
+                          file=sys.stderr, flush=True)
+                    waiting = False
+                    last = time.monotonic()
+                    displayed = 0
                 skipped_total += skipped
                 with frame:
                     if stream == "rgb":
