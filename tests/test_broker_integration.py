@@ -111,6 +111,30 @@ class BrokerIntegrationTests(unittest.TestCase):
         self.assertIs(status["streaming"], False)
         self.assertIs(status["device_control_enabled"], False)
 
+    def test_stream_control_disabled_by_default(self):
+        client = BrokerClient(self.path)
+        with self.assertRaisesRegex(BrokerError, "device_control_disabled"):
+            client.start_streams(rgb=True)
+        with self.assertRaisesRegex(BrokerError, "device_control_disabled"):
+            client.start_streams(ir_depth=True)
+        with self.assertRaisesRegex(BrokerError, "device_control_disabled"):
+            client.start_streams(rgb=True, ir_depth=True)
+        with self.assertRaisesRegex(BrokerError, "device_control_disabled"):
+            client.stop_streams()
+        status = client.get_status()
+        self.assertIs(status["streaming"], False)
+        self.assertEqual(status["selected"], {"rgb": False, "ir_depth": False})
+        self.assertEqual(status["frame_counts"], {"rgb": 0, "ir": 0, "depth": 0})
+
+    def test_stream_client_validates_requested_selection(self):
+        client = BrokerClient(self.path)
+        with self.assertRaises(ValueError):
+            client.start_streams()
+        with self.assertRaises(TypeError):
+            client.start_streams(rgb=1)
+        with self.assertRaises(TypeError):
+            client.start_streams(ir_depth=None)
+
     def test_hardware_flag_rejected_in_default_build(self):
         # No opt-in path is silently simulated as a successful physical open.
         with tempfile.TemporaryDirectory(prefix="kinect2-test-") as tmp:
