@@ -111,6 +111,19 @@ class UserBrokerServiceTests(unittest.TestCase):
             "omp=4", "dynamic=FALSE",
         ])
 
+    def test_launcher_v4l2_is_opt_in(self):
+        env = dict(self.env)
+        env["KINECT2_BROKER_V4L2"] = "1"
+        result = subprocess.run(
+            ["bash", str(self.root / LAUNCHER)],
+            env=env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "args=--allow-device-control --frame-preview --auto-streams --v4l2-rgb",
+            self.broker_log.read_text(),
+        )
+
     def test_launcher_requires_runtime_dir(self):
         env = dict(self.env)
         env.pop("XDG_RUNTIME_DIR")
