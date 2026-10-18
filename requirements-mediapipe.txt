@@ -1,0 +1,4 @@
+# OPTIONAL: only for the isolated Face Landmarker RGB demo.
+# Do not install into the Kinect2 core broker or global Arch Python.
+mediapipe==1.1.1
+numpy>=1.26,<3
