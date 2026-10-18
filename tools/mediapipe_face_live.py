@@ -28,7 +28,7 @@ def rgb_from_snapshot(frame, *, scale: int = 3) -> np.ndarray:
     """
     if frame.kind != "rgb" or frame.bytes_per_pixel != 4:
         raise ValueError("expected a broker RGB BGRX frame")
-    if not isinstance(scale, int) or scale not in (1, 2, 3, 4):
+    if type(scale) is not int or scale not in (1, 2, 3, 4):
         raise ValueError("scale must be 1, 2, 3 or 4")
     native = np.frombuffer(frame.mapping, dtype=np.uint8).reshape(
         frame.height, frame.width, 4
