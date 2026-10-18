@@ -25,7 +25,7 @@ are welcome: [Get involved](docs/COMMUNITY.md) ·
 | Audio | Natywny odczyt ALSA: 4 kanały, 16 kHz, S32_LE; bez obowiązkowego downmixu |
 | Python SDK | Eksperymentalny `FrameClient` odbiera rzeczywiste klatki RGB/IR/Depth przez Unix socket i sealed memfd; wysokopoziomowe, stabilne API jeszcze nie jest wydane |
 | Wielu klientów brokera | PR #15 i #20 są scalone: automatyczne otwieranie/zamykanie USB oraz Firefox + 2×RGB + 2×IR przez jednego brokera. Potwierdzono restart KDE i zwolnienie USB w stanie bez klientów (jeden testowany komputer) |
-| Body/Face Tracking | Eksperymenty osobno, MediaPipe wstrzymane; brak stabilnego API |
+| Body/Face Tracking | Opcjonalny eksperyment RGB Face Landmarker przez brokera (MediaPipe 1.1.1; **wymaga testu na sprzęcie**); brak identyfikacji osoby i stabilnego API — [instrukcja](docs/MEDIAPIPE.md) |
 
 Wyniki pochodzą z lokalnych testów na jednym sprzęcie, **nie** z oficjalnej certyfikacji. Szczegóły: [punkt odniesienia](docs/BASELINE-2026-10-16.md).
 
