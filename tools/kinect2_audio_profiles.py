@@ -188,6 +188,11 @@ def install_service(enable: bool) -> None:
     if not Path("/usr/bin/python3").is_file():
         raise AudioError("Service requires /usr/bin/python3.")
     source = Path(__file__).resolve()
+    # Never persist a systemd launcher pointing at a disposable /tmp smoke-test copy.
+    if (source.name != "kinect2_audio_profiles.py" or source.parent.name != "tools"
+            or not (source.parent / "install_kinect2.sh").is_file()):
+        raise AudioError("Install the service from a persistent Kinect2Linux repository checkout, "
+                         "not a temporary standalone copy.")
     home = Path.home()
     bindir = home / ".local/bin"
     unitdir = home / ".config/systemd/user"
