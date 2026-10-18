@@ -136,6 +136,16 @@ dbfile.write_text(json.dumps(db))
         self.assertEqual(len(self.db_data()["modules"]), 1)
         self.assertEqual(self.run_action("install-service").returncode, 0)
 
+    def test_service_refuses_ephemeral_standalone_script(self):
+        import shutil
+        temp_script = self.bin / "kinect2_audio_profiles.py"
+        shutil.copyfile(SCRIPT, temp_script)
+        response = subprocess.run(["python3", str(temp_script), "install-service"],
+                                  env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(response.returncode, 0)
+        self.assertIn("persistent Kinect2Linux repository checkout", response.stderr)
+        self.assertFalse((self.home / ".config/systemd/user/kinect2-audio-profiles.service").exists())
+
     def test_service_refuses_foreign_unit(self):
         unit = self.home / ".config/systemd/user/kinect2-audio-profiles.service"
         unit.parent.mkdir(parents=True)
