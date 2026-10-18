@@ -92,7 +92,9 @@ Uruchomione klienty audio mogą wymagać ponownego wybrania źródła.
 
 ### Opcjonalny autostart po zalogowaniu
 
-Jeśli użytkownik świadomie chce zachować Mono i Stereo po restarcie:
+Jeśli użytkownik świadomie chce zachować Mono i Stereo po restarcie,
+uruchamia poniższe polecenia **z trwałej kopii repozytorium**
+(np. `~/Projekty/kinect/Kinect2Linux`), a nie z pliku testowego w `/tmp`:
 
 ```bash
 python3 tools/kinect2_audio_profiles.py install-service
