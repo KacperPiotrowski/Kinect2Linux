@@ -98,7 +98,8 @@ class FaceLiveOfflineTests(unittest.TestCase):
 
             @classmethod
             def create_from_options(cls, options):
-                self.assertIsNotNone(options)
+                assert "base_options" in options
+                assert options["running_mode"] == "VIDEO"
                 return cls()
 
         fake_vision = types.SimpleNamespace(
