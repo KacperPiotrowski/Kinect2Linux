@@ -43,6 +43,8 @@ jobs:
           KINECT2_BROKER_BIN: ${{ github.workspace }}/bin/kinect2-broker
           KINECT2_WORKER_BIN: ${{ github.workspace }}/bin/kinect2-worker
         run: python -m unittest discover -s tests -v
+      - name: Optional Kinect audio profile tests (mock PulseAudio)
+        run: python -m unittest discover -s tests -p test_audio_profiles.py -v
       - name: Bash syntax
         run: bash -n kinect2 face3d webcam/*.sh tools/build_broker.sh tools/libfreenect2_path.sh tools/run_broker_service.sh tools/install_broker_user.sh tools/install_kinect2.sh
       - name: Validate public tree

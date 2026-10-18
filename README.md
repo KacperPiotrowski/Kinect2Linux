@@ -111,7 +111,7 @@ Instalacja urządzenia i usług **zmienia konfigurację systemu**. Wykonuj ją �
 
 ### Mikrofony
 
-Mikrofony ALSA działają niezależnie od mostu RGB. Przetwarzanie 4ch → mono/stereo to **opcjonalna**, jawna operacja po stronie klienta. Przykład odczytu natywnego i bezpiecznej analizy: [docs/AUDIO.md](docs/AUDIO.md).
+Mikrofony ALSA działają niezależnie od mostu RGB. **Natywne 4ch pozostają bez zmian**, a dwa opcjonalne źródła PipeWire (`Kinect2_Mono` i `Kinect2_Stereo`) można uruchomić jawnie przez `python3 tools/kinect2_audio_profiles.py start`. Nie przełączamy domyślnego wejścia. Instrukcje, autostart i rollback: [docs/AUDIO.md](docs/AUDIO.md).
 
 ## Eksperymentalne procesy potomne i build przyrostowy
 
