@@ -108,3 +108,39 @@ making performance changes.
 - CPU percentages need context (one process core vs overall CPU usage).
   The benchmark now reports separate median RGB wait, BGR resize, warm inference
   and GUI times. That is diagnostic instrumentation, not a claimed speedup.
+
+## CPU multithreading A/B experiment (Oct 2026)
+
+The 900-frame GUI trial on Ryzen 9 7900 reported 11.37 inferred FPS,
+64.4 ms median inference, 267 MiB process RSS and **2219% process CPU**.
+A `taskset -c 0-7` test still reported ~2159% CPU, 70 process threads, and
+explicit CPU affinity masks for multiple threads outside 0-7. This confirmed
+that simply setting process-level affinity was **not effective** in this case.
+
+RTMLib 0.0.16 does not expose `onnxruntime.SessionOptions` through `Body`.
+For this **experimental A/B test only**, the adapter first creates the
+two models using unchanged upstream RTMLib preprocessing and postprocessing.
+If explicitly requested, it then discards and recreates both CPU ONNX sessions
+with bounded `SessionOptions.intra_op_num_threads` and optional idle spinning
+disabled. This double session creation temporarily costs extra startup time:
+compare **warmed inference** and steady-state process CPU, not first-frame
+startup latency. Normal Basic without flags remains byte-for-byte compatible
+with the previously tested default session setup.
+
+```bash
+# Keep the same image size and same ONNX model files.
+python tools/demo_basic_body_cpu.py --max-frames 300 --ort-threads 4 --ort-no-spin
+python tools/demo_basic_body_cpu.py --max-frames 300 --ort-threads 8 --ort-no-spin
+```
+
+No `taskset` is needed for these trials; the explicit ORT thread count itself
+disables ORT's default automatic thread affinities. Both sessions are limited,
+not only the process main thread. This does **not** constrain OpenCV or BLAS
+threading separately, and system CPU can still be influenced by other
+applications. Watch process `%CPU`, RSS, OS-level CPU, `inferred_fps`,
+`warm_median_inference_ms` and `average_process_cpu_percent_of_one_core`.
+Treat the results as an **A/B measurement**, not an already-proven speedup.
+
+For consistent results, repeat the same duration for baseline and tuned runs.
+Original behavior can be compared using `--ort-threads 0` without
+`--ort-no-spin` (default). No broker restarts or system-wide settings needed.

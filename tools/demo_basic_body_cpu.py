@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 from pathlib import Path
 import statistics
 import sys
@@ -87,7 +88,15 @@ def main() -> int:
     ap.add_argument("--no-preview", action="store_true",
                     help="Benchmark inference without opening a GUI window.")
     ap.add_argument("--width", type=int, default=960, help="RGB preview width (320..960).")
+    ap.add_argument("--ort-threads", type=int, choices=(0, 2, 4, 8, 12, 16),
+                    default=0, help="CPU intra-op threads per ONNX session (0=RTMLib defaults).")
+    ap.add_argument("--ort-no-spin", action="store_true",
+                    help="Stop idle CPU workers spinning between inference calls.")
     args = ap.parse_args()
+    # Only the current preview process. The tracking adapter reads the values
+    # lazily on its first process(frame); the Kinect broker is untouched.
+    os.environ["KINECT2_BODY_ORT_THREADS"] = str(args.ort_threads)
+    os.environ["KINECT2_BODY_ORT_NO_SPIN"] = "1" if args.ort_no_spin else "0"
     if args.width < 320 or args.width > 960 or args.max_frames < 0:
         ap.error("width must be 320..960; max-frames must be >= 0.")
     try:
@@ -96,6 +105,8 @@ def main() -> int:
     except ImportError:
         print("Missing OpenCV/NumPy: see docs/BODY-BASIC-CPU.md", file=sys.stderr)
         return 2
+    print(f"ONNX thread test: intra_threads={args.ort_threads or 'default'}, "
+          f"idle_spinning={'off' if args.ort_no_spin else 'default'}", flush=True)
     name = "Kinect2Linux Basic | Body CPU (Q/Esc/X to exit)"
     if not args.no_preview:
         cv2.namedWindow(name, cv2.WINDOW_NORMAL)

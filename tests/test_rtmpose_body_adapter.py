@@ -96,6 +96,74 @@ class RtmposeAdapterTests(TestCase):
         self.assertEqual(joint.confidence, 0.0)
         self.assertLessEqual(joint.y, 1.0)
 
+
+    def test_cpu_tuning_rejects_invalid_values(self):
+        for value in ("-1", "foo", "999", "4.5"):
+            with self.subTest(value=value), mock.patch.dict(
+                os.environ, {adapter.THREADS_ENV: value}, clear=False
+            ):
+                with self.assertRaises(t.TrackingUnavailable):
+                    adapter._cpu_tuning()
+        with mock.patch.dict(os.environ, {adapter.NO_SPIN_ENV: "maybe"}):
+            with self.assertRaises(t.TrackingUnavailable):
+                adapter._cpu_tuning()
+
+    def test_defaults_do_not_import_onnxruntime(self):
+        with mock.patch.dict(os.environ, {
+            adapter.THREADS_ENV: "0",
+            adapter.NO_SPIN_ENV: "0",
+        }):
+            self.assertEqual(adapter._cpu_tuning(), (0, False))
+        # No runtime to retune means no additional model imports or allocation.
+        with mock.patch.dict(sys.modules, {"onnxruntime": None}):
+            adapter._retune_ort_sessions(object(), 0, False)
+
+    def test_retuned_sessions_use_explicit_cpu_threads_without_affinity(self):
+        fake_ort = types.SimpleNamespace()
+        instances = []
+
+        class FakeOptions:
+            def __init__(self):
+                self.intra_op_num_threads = 0
+                self.inter_op_num_threads = 0
+                self.execution_mode = None
+                self.entries = {}
+
+            def add_session_config_entry(self, key, value):
+                self.entries[key] = value
+
+        def fake_session(path, *, sess_options, providers):
+            instances.append((path, sess_options, providers))
+            return object()
+
+        fake_ort.SessionOptions = FakeOptions
+        fake_ort.ExecutionMode = types.SimpleNamespace(ORT_SEQUENTIAL="SEQUENTIAL")
+        fake_ort.InferenceSession = fake_session
+        detector = types.SimpleNamespace(session=object())
+        poser = types.SimpleNamespace(session=object())
+        body = types.SimpleNamespace(det_model=detector, pose_model=poser)
+        with mock.patch.dict(sys.modules, {"onnxruntime": fake_ort}):
+            adapter._retune_ort_sessions(body, 4, True)
+        self.assertEqual(len(instances), 2)
+        self.assertEqual([p[2] for p in instances],
+                         [["CPUExecutionProvider"], ["CPUExecutionProvider"]])
+        self.assertEqual([p[0] for p in instances], [str(adapter.DETECTOR), str(adapter.POSE)])
+        self.assertTrue(all(p[1].intra_op_num_threads == 4 for p in instances))
+        self.assertTrue(all(p[1].inter_op_num_threads == 1 for p in instances))
+        self.assertEqual(instances[0][1].execution_mode, "SEQUENTIAL")
+        self.assertEqual(instances[0][1].entries, {
+            "session.intra_op.allow_spinning": "0",
+            "session.inter_op.allow_spinning": "0",
+        })
+        self.assertIsNotNone(detector.session)
+        self.assertIsNotNone(poser.session)
+
+    def test_retune_refuses_unsupported_rtmlib_layout(self):
+        fake_ort = types.SimpleNamespace(SessionOptions=lambda: object())
+        with mock.patch.dict(sys.modules, {"onnxruntime": fake_ort}):
+            with self.assertRaisesRegex(t.TrackingUnavailable, "Unsupported RTMLib"):
+                adapter._retune_ort_sessions(object(), 4, True)
+
     def test_nonfinite_keypoints_never_leak_to_api(self):
         import numpy as np
         body = adapter.RTMPoseBody.__new__(adapter.RTMPoseBody)
