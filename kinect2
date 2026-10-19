@@ -29,6 +29,8 @@ usage() {
   cat <<'TXT'
 Kinect2-Linux — eksperymentalny userspace MVP
 
+  ./kinect2 basic       - prosty widok: kamerka V4L2 + mikrofon stereo
+  ./kinect2 advanced    - pełny widok: narzędzia programistyczne i diagnostyka
   ./kinect2 status [--json] - odczyt stanu (bez otwierania Kinecta)
   ./kinect2 devices [--json] - fizyczne i wirtualne urzadzenia
   ./kinect2 clients [--json] - odbiorcy i wlasciciel USB (best effort)
@@ -164,6 +166,10 @@ TXT
 }
 
 case "${1:-help}" in
+  basic|advanced)
+    mode="$1"; shift
+    exec python3 "$ROOT/tools/kinect2_modes.py" "$mode" "$@"
+    ;;
   # KINECT2_STATUS_API_READONLY_V1
   status)
     shift

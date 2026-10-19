@@ -29,17 +29,48 @@ are welcome: [Get involved](docs/COMMUNITY.md) ·
 
 Wyniki pochodzą z lokalnych testów na jednym sprzęcie, **nie** z oficjalnej certyfikacji. Szczegóły: [punkt odniesienia](docs/BASELINE-2026-10-16.md).
 
-## Modele śledzenia: Basic / Advanced / OFF (fundament API)
+## Basic / Advanced — jeden projekt, jeden broker
 
-Śledzenie AI będzie **opcjonalne, ładowane dopiero przy pierwszym użyciu**
-i niezależne od brokera kamery. **Basic** docelowo wybierze automatycznie
-sprawdzony lekki model CPU do śledzenia sylwetki, **Advanced** pozwoli zmienić
-model na dokładniejszy, a **OFF** niczego nie załaduje. Nie tworzymy własnego
-silnika AI ani nie narzucamy MediaPipe.
+**Basic ukrywa złożoność, nie funkcje. Advanced udostępnia kontrolę, nie
+osobny produkt.** Dostęp do Howdy i innych integracji docelowo będzie możliwy
+z obu widoków (opcjonalnie i bez automatycznej modyfikacji PAM).
 
-Na razie istnieje **interfejs i OFF**, ale nie ma jeszcze włączonego modelu
-Body/Hands/Face w tej warstwie — to osobne etapy sprzętowych testów.
-[Szczegóły i kryteria akceptacji](docs/TRACKING-MODELS.md).
+Pierwszy krok to działający interfejs CLI nad istniejącą infrastrukturą,
+**jeszcze nie gotowa graficzna instalacja plug-and-play**:
+
+```bash
+./kinect2 basic check      # tylko diagnostyka
+./kinect2 basic prepare    # buduje broker bez uruchamiania
+./kinect2 basic activate   # aktywuje kamerkę i istniejące profile mikrofonowe
+./kinect2 advanced status  # ta sama infrastruktura, pełna diagnostyka
+```
+
+Basic udostępnia RGB i istniejący profil `Kinect2_Stereo`; surowe 4ch,
+IR/Depth i SDK pozostają dostępne. Kamera w tym etapie nadal nazywa się
+`Kinect v2 RGB`; nazwa ogólna `USB Camera` wymaga osobnego bezpiecznego
+wdrożenia. **Przed `activate`** konieczne jest obecne przygotowanie
+`/dev/video11` i rozwiązanie konfliktu starego producenta RGB. Żadne
+polecenie nie uruchamia sudo ani nie zmienia domyślnego źródła audio.
+[Pełny opis, ograniczenia i rollback](docs/BASIC-ADVANCED.md).
+
+## Modele śledzenia: Basic / Advanced / OFF (eksperyment)
+
+Śledzenie sylwetki jest **opcjonalne** i działa poza brokerem USB.
+Interfejs `TrackingSession` obsługuje **OFF** (bez ładowania modeli),
+**Basic** (sprawdzany na sprzęcie lekki model CPU) oraz **Advanced**
+(możliwość wyboru z listy zweryfikowanych modeli, gdy będą dostępne).
+Wszystkie modele są ładowane dopiero przy pierwszej potrzebnej klatce.
+
+Eksperymentalny Body Tracking **YOLOX-tiny + RTMPose-s**, z 17 punktami
+szkieletu 2D i obsługą wielu osób, przeszedł testy na fizycznym Kinect v2.
+Domyślny profil testowy używa jednego wątku inferencji na sesję ONNX Runtime,
+bez aktywnego oczekiwania (*spinning*); nie jest to pomiar wydajności na
+każdym komputerze. Modele i zależności są **opcjonalne** i wymagają osobnego
+przygotowania. Nie są automatycznie uruchamiane przez CLI Basic, a dłonie
+i twarz nie mają jeszcze adapterów w nowym interfejsie.
+
+[Opis interfejsu](docs/TRACKING-MODELS.md) ·
+[Instrukcja eksperymentu Body CPU](docs/BODY-BASIC-CPU.md).
 
 ## Szybki start (obecny prototyp — Arch Linux)
 
