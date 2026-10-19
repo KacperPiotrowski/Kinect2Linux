@@ -40,6 +40,10 @@ class FrameHub final : public FrameSink {
   // Path parent must be a current-user 0700 directory; no unlink of old sockets.
   bool start(const std::string& path) noexcept;
   void stop() noexcept;
+  // Emergency USB-loss path only: remove this process's own socket pathname
+  // without joining threads or touching the still-running USB frame publisher.
+  // The caller must immediately _exit() (never resume running after this).
+  void unlink_endpoint_for_exit() noexcept;
   void publish(FrameKind kind, const std::uint8_t* bytes,
                std::uint32_t width, std::uint32_t height,
                std::uint32_t bytes_per_pixel,
