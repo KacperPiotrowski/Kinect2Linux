@@ -29,6 +29,30 @@ are welcome: [Get involved](docs/COMMUNITY.md) ·
 
 Wyniki pochodzą z lokalnych testów na jednym sprzęcie, **nie** z oficjalnej certyfikacji. Szczegóły: [punkt odniesienia](docs/BASELINE-2026-10-16.md).
 
+## Basic / Advanced — jeden projekt, jeden broker
+
+**Basic ukrywa złożoność, nie funkcje. Advanced udostępnia kontrolę, nie
+osobny produkt.** Dostęp do Howdy i innych integracji docelowo będzie możliwy
+z obu widoków (opcjonalnie i bez automatycznej modyfikacji PAM).
+
+Pierwszy krok to działający interfejs CLI nad istniejącą infrastrukturą,
+**jeszcze nie gotowa graficzna instalacja plug-and-play**:
+
+```bash
+./kinect2 basic check      # tylko diagnostyka
+./kinect2 basic prepare    # buduje broker bez uruchamiania
+./kinect2 basic activate   # aktywuje kamerkę i istniejące profile mikrofonowe
+./kinect2 advanced status  # ta sama infrastruktura, pełna diagnostyka
+```
+
+Basic udostępnia RGB i istniejący profil `Kinect2_Stereo`; surowe 4ch,
+IR/Depth i SDK pozostają dostępne. Kamera w tym etapie nadal nazywa się
+`Kinect v2 RGB`; nazwa ogólna `USB Camera` wymaga osobnego bezpiecznego
+wdrożenia. **Przed `activate`** konieczne jest obecne przygotowanie
+`/dev/video11` i rozwiązanie konfliktu starego producenta RGB. Żadne
+polecenie nie uruchamia sudo ani nie zmienia domyślnego źródła audio.
+[Pełny opis, ograniczenia i rollback](docs/BASIC-ADVANCED.md).
+
 ## Szybki start (obecny prototyp — Arch Linux)
 
 
