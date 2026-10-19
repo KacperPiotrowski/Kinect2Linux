@@ -88,3 +88,23 @@ PYTHONPATH=sdk/python python3 -m unittest discover -s tests -p 'test_rtmpose_bod
 - Currently manual explicit model download and separate venv.
 - Turning tracking OFF still imports no models or third-party AI modules.
 - No custom engine/plugins. Advanced models can be evaluated separately.
+
+## Body preview after first on-hardware test
+
+The first live inference detected 1 person and completed 10 frames. Reported
+overall 3.56 inferred FPS, median inference 70.3 ms, max 171.2 ms. That is
+**not** evidence that CPU inference itself is 3.56 FPS; measure broker frame
+waiting separately from BGR resizing, warm inference and GUI drawing before
+making performance changes.
+
+- The old torso outline connected shoulders and hips as a square. This preview
+  now uses shoulder and hip bars with an **illustrative center spine**.
+- Off-screen or low-confidence joints are not joined to other joints. This
+  does **not** increase the actual model accuracy or reconstruct missing legs.
+- **To display full legs, they must fit the RGB field of view.** Stand far
+  enough back that both feet remain visible; the preview preserves 16:9 aspect
+  ratio and does not crop the physical image.
+- Face landmarks here mean COCO nose/eyes/ears, not face identification.
+- CPU percentages need context (one process core vs overall CPU usage).
+  The benchmark now reports separate median RGB wait, BGR resize, warm inference
+  and GUI times. That is diagnostic instrumentation, not a claimed speedup.

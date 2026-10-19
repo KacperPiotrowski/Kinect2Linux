@@ -84,6 +84,18 @@ class RtmposeAdapterTests(TestCase):
         with self.assertRaises(ValueError):
             body.process(np.zeros((20, 30), dtype=np.uint8))
 
+
+    def test_out_of_frame_joint_confidence_is_zero(self):
+        import numpy as np
+        body = adapter.RTMPoseBody.__new__(adapter.RTMPoseBody)
+        points = np.full((1, 17, 2), 5.0)
+        points[0, 15] = [8.0, 50.0]  # ankle below a 16x16 frame
+        body._body = lambda _: (points, np.ones((1, 17)))
+        result = body.process(np.zeros((16, 16, 3), dtype=np.uint8))
+        joint = result.subjects[0].keypoints[15]
+        self.assertEqual(joint.confidence, 0.0)
+        self.assertLessEqual(joint.y, 1.0)
+
     def test_nonfinite_keypoints_never_leak_to_api(self):
         import numpy as np
         body = adapter.RTMPoseBody.__new__(adapter.RTMPoseBody)

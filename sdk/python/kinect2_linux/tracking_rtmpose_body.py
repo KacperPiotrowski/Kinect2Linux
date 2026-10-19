@@ -81,6 +81,10 @@ class RTMPoseBody:
                 if not all(isfinite(v) for v in (cx, cy, score)):
                     # Do not produce NaN coordinates in public results.
                     cx, cy, score = 0.0, 0.0, 0.0
+                if not (0.0 <= cx < w and 0.0 <= cy < h):
+                    # A keypoint guessed OUTSIDE the camera FOV must not be
+                    # treated as a valid joint after coordinate clamping.
+                    score = 0.0
                 joints.append(Keypoint(
                     name=name,
                     x=min(1.0, max(0.0, cx / w)),
