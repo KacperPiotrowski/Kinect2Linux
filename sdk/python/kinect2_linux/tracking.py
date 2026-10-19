@@ -57,8 +57,13 @@ class _ModelSpec:
 
 # Populated ONLY when individually reviewed and tested built-in adapters land.
 # No arbitrary Python module path or user-defined engine loading is supported.
-_BUILTIN_MODELS: dict[str, _ModelSpec] = {}
-_DEFAULT_MODELS: dict[tuple[str, str], str] = {}
+_BUILTIN_MODELS: dict[str, _ModelSpec] = {
+    # Optional external runtime and two manually provisioned ONNX weights.
+    "rtmpose-body-light": _ModelSpec("body", "kinect2_linux.tracking_rtmpose_body"),
+}
+_DEFAULT_MODELS: dict[tuple[str, str], str] = {
+    ("body", "basic"): "rtmpose-body-light",
+}
 
 
 def available_models(task: str) -> tuple[str, ...]:
