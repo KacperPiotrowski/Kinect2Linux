@@ -88,12 +88,16 @@ target_link_libraries(test_auto_capture PRIVATE kinect2_auto_capture kinect2_ses
   kinect2_frame_hub Threads::Threads)
 add_test(NAME auto_capture COMMAND test_auto_capture)
 
+add_executable(test_usb_disconnect_guard tests/native/test_usb_disconnect_guard.cpp)
+target_include_directories(test_usb_disconnect_guard PRIVATE "${PROJECT_SOURCE_DIR}")
+add_test(NAME usb_disconnect_guard COMMAND test_usb_disconnect_guard)
+
 add_executable(test_worker_process tests/native/test_worker_process.cpp)
 target_link_libraries(test_worker_process PRIVATE kinect2_worker_supervisor)
 add_test(NAME worker_process COMMAND test_worker_process "$<TARGET_FILE:kinect2-worker>")
 
 # Existing native tests use assert() with meaningful side effects. CMake
 # Release defines NDEBUG, so explicitly keep assertions enabled in test code.
-foreach(test_target test_sensor_backend test_device_session test_sequence_gap_tracker test_frame_hub test_v4l2_rgb test_auto_capture test_worker_process)
+foreach(test_target test_sensor_backend test_device_session test_sequence_gap_tracker test_frame_hub test_v4l2_rgb test_auto_capture test_usb_disconnect_guard test_worker_process)
   target_compile_options(${test_target} PRIVATE -UNDEBUG)
 endforeach()

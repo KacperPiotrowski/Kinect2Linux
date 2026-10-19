@@ -16,6 +16,7 @@
 #include "core/frame_sink_fanout.hpp"
 #include "core/v4l2_rgb_output.hpp"
 #include "core/auto_capture.hpp"
+#include "core/usb_disconnect_guard.hpp"
 #include "core/worker_process.hpp"
 #include <memory>
 #include <poll.h>
@@ -289,6 +290,15 @@ bool valid_private_parent(const std::string& path) {
          st.st_uid == geteuid() && (st.st_mode & 077) == 0;
 }
 
+void unlink_control_socket_if_owned(const std::string& path,
+                                    const struct stat& created) noexcept {
+  // Both regular shutdown and emergency USB-loss exit protect foreign paths.
+  struct stat current {};
+  if (::lstat(path.c_str(), &current) == 0 && S_ISSOCK(current.st_mode) &&
+      current.st_dev == created.st_dev && current.st_ino == created.st_ino)
+    (void)::unlink(path.c_str());
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -430,11 +440,34 @@ int main(int argc, char** argv) {
   std::unique_ptr<kinect2::AutoCapture> auto_capture;
   if (auto_streams) auto_capture = std::make_unique<kinect2::AutoCapture>(*device_session);
   kinect2::SysfsSensorBackend sensor_backend;
+  kinect2::UsbDisconnectGuard usb_disconnect_guard;
   std::cout << "Kinect2 broker control socket ready: " << path
             << (device_session ? " (hardware control enabled; capture opt-in)\n" :
                                   " (read-only sysfs discovery; hardware control disabled)\n")
             << std::flush;
   while (running) {
+    if (auto_capture && device_session) {
+      // Before reconciling subscriber departures (which calls the native
+      // stop/close on this control thread), check whether the *live* USB
+      // handle has lost its physical device. Pinned libfreenect2's
+      // TransferPool::cancel() can wait without a timeout after unplug.
+      //
+      // Never call its teardown on a known-lost handle: remove only our own
+      // endpoint names, then exit with failure. The OS releases libusb fds,
+      // the sensor lock, and client connections. systemd --user restarts an
+      // enabled broker via Restart=on-failure; clients must reconnect.
+      const auto discovered = sensor_backend.discover();
+      if (usb_disconnect_guard.lost_device(
+              device_session->is_streaming(), discovered.scan_ok,
+              discovered.devices.size())) {
+        std::cerr << "FATAL: active Kinect USB disappeared; skipping unsafe "
+                     "native teardown, restarting broker process. "
+                     "Frame clients must reconnect.\n" << std::flush;
+        if (frame_hub) frame_hub->unlink_endpoint_for_exit();
+        unlink_control_socket_if_owned(path, created);
+        ::_exit(75); // No C++ cleanup: libfreenect2::stop may never return.
+      }
+    }
     if (frame_hub) {
       // The FrameHub and USB session never call into each other. The broker
       // thread is the sole owner of all potentially blocking USB operations.
@@ -473,10 +506,6 @@ int main(int argc, char** argv) {
   v4l2_rgb.reset();
   frame_hub.reset();
   close(server);
-  // Avoid removing a path that was replaced while the server was running.
-  struct stat current {};
-  if (lstat(path.c_str(), &current) == 0 && S_ISSOCK(current.st_mode) &&
-      current.st_dev == created.st_dev && current.st_ino == created.st_ino)
-    unlink(path.c_str());
+  unlink_control_socket_if_owned(path, created);
   return 0;
 }

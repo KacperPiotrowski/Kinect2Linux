@@ -127,6 +127,17 @@ bool FrameHub::start(const std::string& path) noexcept {
   return true;
 }
 
+void FrameHub::unlink_endpoint_for_exit() noexcept {
+  // No locking or thread joins: caller immediately exits the process after
+  // removing its OWN original socket pathname. Never delete a replaced path.
+  struct stat current {};
+  if (!socket_path_.empty() &&
+      ::lstat(socket_path_.c_str(), &current) == 0 &&
+      S_ISSOCK(current.st_mode) &&
+      current.st_dev == socket_dev_ && current.st_ino == socket_ino_)
+    ::unlink(socket_path_.c_str());
+}
+
 void FrameHub::stop() noexcept {
   running_.store(false);
   if (accept_thread_.joinable()) accept_thread_.join();
@@ -137,12 +148,7 @@ void FrameHub::stop() noexcept {
     ::close(server_fd_);
     server_fd_ = -1;
   }
-  struct stat current {};
-  if (!socket_path_.empty() &&
-      ::lstat(socket_path_.c_str(), &current) == 0 &&
-      S_ISSOCK(current.st_mode) &&
-      current.st_dev == socket_dev_ && current.st_ino == socket_ino_)
-    ::unlink(socket_path_.c_str());
+  unlink_endpoint_for_exit();
   socket_path_.clear();
 }
 
