@@ -1,7 +1,9 @@
-# Active USB loss: broker fail-fast recovery (draft)
+# Active USB loss: broker fail-fast recovery (preview)
 
-**Status: DRAFT, offline-tested only; do not deploy to the physical Kinect
-station before explicit hardware approval and verification.** See #32.
+**Status: tested on one physical Kinect v2 (Arch Linux/KDE, October 2026),
+including supervised fail-fast restart and fresh IR after recovery. PR #33
+remains a draft and is NOT merged or deployed to the installed original
+broker service.** See #32 and #33.
 
 ## Failure observed on physical hardware
 
@@ -66,12 +68,63 @@ topologies. A transient real USB reset may also trigger broker restart.
 - Offline unit coverage: `test_usb_disconnect_guard` for state transitions,
   `test_frame_hub` for owned socket path cleanup and preservation of
   a replacement pathname.
-- The prior physically observed hang is not yet proven fixed.
+- The previously reproduced active-stream unplug scenario was contained on
+  this test station: a confirmed USB disappearance exited with status 75,
+  avoiding the previously observed stuck native teardown. This is not proof
+  that all USB failure modes or native deadlocks are fixed.
 
-**Required before merging/deploying:** CI green, maintainer review, a
-controlled service switchover only after explicit consent, and physical
-retest of active unplug/replug. Verify PID changes once, broker status
-responds after restart, no persistent socket or USB lock prevents new
-subscribers, a fresh IR subscriber receives frames, Firefox and 4 SDK
-clients still work, and normal idle USB release still works. Record
-behavior if libfreenect2 blocks before the watchdog sees device absence.
+## Physical acceptance results (October 19, 2026)
+
+All observations below are from the maintainer's **single Kinect v2** test
+station and a separate branch checkout, not a universal compatibility claim.
+
+- **Build/CI:** hardware-enabled branch build succeeded against pinned local
+  `libfreenect2-omp`; native CTest **8/8 PASS**. GitHub Actions for the
+  tested source commit succeeded. Documentation changes need their own CI check.
+- **Normal capture:** a single SDK IR client received a real `512x424`
+  frame on PR #33, then auto-capture closed and released USB.
+- **Manual fail-fast:** while IR was actively producing frames, a physical USB
+  disconnect/reconnect was independently observed in sysfs as **1 -> 0 -> 1**.
+  The IR client lost its IPC connection, the original broker PID exited,
+  and both owned IPC socket pathnames were absent. A fresh manually launched
+  PR #33 broker then successfully captured IR and returned to idle.
+- **systemd failover:** a temporary user unit with `Restart=on-failure` logged
+  `FATAL: active Kinect USB disappeared` and `status=75/TEMPFAIL`.
+  The supervisor restarted the broker exactly once in this test:
+  PID **283416 -> 283814**, `NRestarts=1`. A newly connected IR client
+  received a real `512x424` frame, and USB was released afterward.
+  **Existing FrameClient instances do not automatically reconnect.**
+- **Firefox + SDK regression:** on a separate temporary PR #33 user unit
+  with the in-process RGB V4L2 adapter on `/dev/video11`, Firefox displayed
+  smooth video with no V4L2 `dropped` frames reported. During an 18-second
+  overlapping test, Firefox + **2 RGB and 2 IR SDK subscribers** simultaneously
+  received frames: each RGB client 505 frames, each IR client 524 frames,
+  with strictly increasing publication timestamps and no receive exceptions.
+  The V4L2 adapter wrote 506 additional frames and reported zero drops.
+  After SDK clients exited, subscriber count returned to zero; closing
+  Firefox returned the sensor to idle; the test broker shut down cleanly.
+- **Sequence caveat:** while adding IR during RGB capture, both IR clients
+  observed a native `sequence` transition **34 -> 0** at the second sample
+  (then increasing), plus **7 IR** and **13 RGB** positive sequence gaps per
+  SDK client during the 18-second test. A separate 12-frame IR diagnostic
+  verified increasing publication times and distinct content hashes.
+  Stream selection changes trigger native stop/restart, making a counter
+  reset plausible, **but the exact cause has not been proven**. Do not
+  advertise zero sequence gaps or uninterrupted native numbering.
+
+Temporary test units were stopped and did not replace or edit the installed
+`kinect2-broker.service`. No USB security parameters, USB lock-file paths,
+audio configuration, or V4L2 kernel/device configuration were modified.
+
+## Before merging or deploying
+
+- Re-run CI for any commits after these hardware observations and review the
+  final patch, including inode-checked cleanup and single-Kinect limitation.
+- Review the expected client reconnect behavior and publication-sequence caveat
+  with the SDK/API documentation; avoid promising transparent recovery.
+- Restore and verify the original user broker after the V4L2 validation
+  (the last recorded step stopped only the temporary PR #33 unit).
+- A fresh installation on a different Linux machine and audio quality checks
+  are separate wider release-readiness work, **not claimed as completed** by
+  this USB-failsafe PR. Audio was deliberately not re-tested in this round.
+
