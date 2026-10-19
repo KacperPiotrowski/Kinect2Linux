@@ -70,12 +70,10 @@ class RtmposeAdapterTests(TestCase):
 
     def test_empty_people_is_valid(self):
         import numpy as np
-        with mock.patch.object(adapter, "RTMPoseBody", autospec=False) as obj:
-            # Direct conversion logic remains under real object; use fake call.
-            body = adapter.RTMPoseBody.__new__(adapter.RTMPoseBody)
-            body._body = lambda _: (np.empty((0, 17, 2)), np.empty((0, 17)))
-            result = body.process(np.zeros((16, 16, 3), dtype=np.uint8))
-            self.assertEqual(result.subjects, ())
+        body = adapter.RTMPoseBody.__new__(adapter.RTMPoseBody)
+        body._body = lambda _: (np.empty((0, 17, 2)), np.empty((0, 17)))
+        result = body.process(np.zeros((16, 16, 3), dtype=np.uint8))
+        self.assertEqual(result.subjects, ())
 
     def test_invalid_image_refused_before_inference(self):
         import numpy as np
