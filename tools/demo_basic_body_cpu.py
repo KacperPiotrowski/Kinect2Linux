@@ -89,9 +89,11 @@ def main() -> int:
                     help="Benchmark inference without opening a GUI window.")
     ap.add_argument("--width", type=int, default=960, help="RGB preview width (320..960).")
     ap.add_argument("--ort-threads", type=int, choices=(0, 2, 4, 8, 12, 16),
-                    default=0, help="CPU intra-op threads per ONNX session (0=RTMLib defaults).")
-    ap.add_argument("--ort-no-spin", action="store_true",
-                    help="Stop idle CPU workers spinning between inference calls.")
+                    default=4, help="CPU intra-op threads per ONNX session (Basic default: 4; 0=RTMLib auto).")
+    ap.add_argument("--ort-no-spin", dest="ort_no_spin", action="store_true",
+                    default=True, help="Disable idle CPU spinning (Basic default).")
+    ap.add_argument("--ort-spin", dest="ort_no_spin", action="store_false",
+                    help="Restore idle CPU spinning for legacy A/B comparison.")
     args = ap.parse_args()
     # Only the current preview process. The tracking adapter reads the values
     # lazily on its first process(frame); the Kinect broker is untouched.

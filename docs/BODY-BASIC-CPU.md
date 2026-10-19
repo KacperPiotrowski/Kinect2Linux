@@ -118,19 +118,35 @@ explicit CPU affinity masks for multiple threads outside 0-7. This confirmed
 that simply setting process-level affinity was **not effective** in this case.
 
 RTMLib 0.0.16 does not expose `onnxruntime.SessionOptions` through `Body`.
-For this **experimental A/B test only**, the adapter first creates the
-two models using unchanged upstream RTMLib preprocessing and postprocessing.
-If explicitly requested, it then discards and recreates both CPU ONNX sessions
-with bounded `SessionOptions.intra_op_num_threads` and optional idle spinning
-disabled. This double session creation temporarily costs extra startup time:
-compare **warmed inference** and steady-state process CPU, not first-frame
-startup latency. Normal Basic without flags remains byte-for-byte compatible
-with the previously tested default session setup.
+The maintainer confirmed by live GUI that **4 intra-op threads and disabled
+idle spinning** preserve the desired tracking behavior on Ryzen 9 7900. A
+`btop` snapshot during that run showed **8% system-wide CPU** and about
+**183% CPU for the Python process**, vs earlier ~98% system-wide and
+~2200% Python CPU. These are different sample moments, not a controlled
+FPS equivalence benchmark, but the measured CPU reduction is substantial.
+The Python process remained around **270 MiB RSS**.
+
+Therefore this experimental Basic profile now **defaults to 4 CPU threads
+and no spinning**. The adapter uses RTMLib's unchanged YOLOX/RTMPose
+preprocessing and postprocessing. It first creates both upstream sessions,
+then rebuilds them with bounded `SessionOptions.intra_op_num_threads` and
+spinning disabled. This double session creation costs extra startup time:
+compare **warmed inference** and steady-state CPU, not first-frame latency.
+There is no need to type any tuning flags for everyday Basic use.
+
+Setting `--ort-threads 0 --ort-spin` recreates the previous untuned RTMLib
+behavior **only for an explicit benchmark**. The default configuration for
+direct `TrackingSession("body", mode="basic")` use is also bounded unless
+the application overrides `KINECT2_BODY_ORT_THREADS` and
+`KINECT2_BODY_ORT_NO_SPIN` explicitly.
 
 ```bash
-# Keep the same image size and same ONNX model files.
-python tools/demo_basic_body_cpu.py --max-frames 300 --ort-threads 4 --ort-no-spin
+# Everyday Basic: the hardware-tested settings are already the default.
+python tools/demo_basic_body_cpu.py --max-frames 300
+
+# Optional A/B tests, only if you deliberately want to compare variants:
 python tools/demo_basic_body_cpu.py --max-frames 300 --ort-threads 8 --ort-no-spin
+python tools/demo_basic_body_cpu.py --max-frames 300 --ort-threads 0 --ort-spin
 ```
 
 No `taskset` is needed for these trials; the explicit ORT thread count itself
@@ -142,5 +158,7 @@ applications. Watch process `%CPU`, RSS, OS-level CPU, `inferred_fps`,
 Treat the results as an **A/B measurement**, not an already-proven speedup.
 
 For consistent results, repeat the same duration for baseline and tuned runs.
-Original behavior can be compared using `--ort-threads 0` without
-`--ort-no-spin` (default). No broker restarts or system-wide settings needed.
+Original behavior is recovered only with **both** `--ort-threads 0`
+and `--ort-spin`. No broker restarts or system-wide settings needed.
+The ONNX models themselves remain unchanged; no claim is made of improved
+accuracy or of a measured end-to-end FPS gain.

@@ -16,20 +16,21 @@ ROOT = Path(__file__).resolve().parents[3]
 DETECTOR = ROOT / "models" / "rtmpose-body-det-tiny.onnx"
 POSE = ROOT / "models" / "rtmpose-body-pose-s.onnx"
 
-# CPU tuning is intentionally experimental; none means unchanged RTMLib defaults.
+# Hardware-tested Basic CPU profile: 4 intra-op threads and idle spinning OFF.
 # Read only on first model creation, preserving TrackingSession's lazy behavior.
+# Overrides 0/0 restore the legacy RTMLib defaults for A/B measurements.
 THREADS_ENV = "KINECT2_BODY_ORT_THREADS"
 NO_SPIN_ENV = "KINECT2_BODY_ORT_NO_SPIN"
 
 
 def _cpu_tuning() -> tuple[int, bool]:
-    raw = os.environ.get(THREADS_ENV, "0")
+    raw = os.environ.get(THREADS_ENV, "4")
     if not raw.isascii() or not raw.isdecimal():
         raise TrackingUnavailable(f"{THREADS_ENV} must be an integer from 0 to 32")
     threads = int(raw)
     if not 0 <= threads <= 32:
         raise TrackingUnavailable(f"{THREADS_ENV} must be an integer from 0 to 32")
-    no_spin = os.environ.get(NO_SPIN_ENV, "0")
+    no_spin = os.environ.get(NO_SPIN_ENV, "1")
     if no_spin not in ("0", "1"):
         raise TrackingUnavailable(f"{NO_SPIN_ENV} must be 0 or 1")
     return threads, no_spin == "1"

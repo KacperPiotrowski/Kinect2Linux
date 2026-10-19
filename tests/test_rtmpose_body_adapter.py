@@ -55,7 +55,9 @@ class RtmposeAdapterTests(TestCase):
             pose.write_bytes(b"fake")
             with mock.patch.object(adapter, "DETECTOR", det), mock.patch.object(
                 adapter, "POSE", pose
-            ), mock.patch.dict(sys.modules, {"rtmlib": fake}):
+            ), mock.patch.dict(sys.modules, {"rtmlib": fake}), mock.patch.dict(
+                os.environ, {adapter.THREADS_ENV: "0", adapter.NO_SPIN_ENV: "0"}
+            ):
                 obj = adapter.create_tracker()
                 result = obj.process(np.zeros((240, 320, 3), dtype=np.uint8))
                 obj.close()
@@ -96,6 +98,15 @@ class RtmposeAdapterTests(TestCase):
         self.assertEqual(joint.confidence, 0.0)
         self.assertLessEqual(joint.y, 1.0)
 
+
+    def test_hardware_selected_basic_defaults_are_lazy_and_bounded(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(adapter._cpu_tuning(), (4, True))
+        # Advanced can still explicitly restore an untuned RTMLib baseline.
+        with mock.patch.dict(os.environ, {
+            adapter.THREADS_ENV: "0", adapter.NO_SPIN_ENV: "0"
+        }, clear=True):
+            self.assertEqual(adapter._cpu_tuning(), (0, False))
 
     def test_cpu_tuning_rejects_invalid_values(self):
         for value in ("-1", "foo", "999", "4.5"):
