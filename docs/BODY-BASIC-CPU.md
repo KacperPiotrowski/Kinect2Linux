@@ -126,8 +126,13 @@ idle spinning** preserve the desired tracking behavior on Ryzen 9 7900. A
 FPS equivalence benchmark, but the measured CPU reduction is substantial.
 The Python process remained around **270 MiB RSS**.
 
-Therefore this experimental Basic profile now **defaults to 4 CPU threads
-and no spinning**. The adapter uses RTMLib's unchanged YOLOX/RTMPose
+Following the maintainer's subjective A/B tests of the unchanged model,
+the experimental Basic profile now **defaults to 1 ONNX intra-op thread
+per inference session, with idle spinning disabled**. The owner reports that
+the skeleton is still responsive, and live btop snapshots show approximately
+7–11% (11% on the submitted screenshot) whole-system CPU, with 137% process
+CPU and around 279 MiB process RSS at the captured instant. This is not yet
+a controlled 300-frame FPS/latency comparison against the 2- and 4-thread runs. The adapter uses RTMLib's unchanged YOLOX/RTMPose
 preprocessing and postprocessing. It first creates both upstream sessions,
 then rebuilds them with bounded `SessionOptions.intra_op_num_threads` and
 spinning disabled. This double session creation costs extra startup time:
@@ -141,10 +146,11 @@ the application overrides `KINECT2_BODY_ORT_THREADS` and
 `KINECT2_BODY_ORT_NO_SPIN` explicitly.
 
 ```bash
-# Everyday Basic: the hardware-tested settings are already the default.
+# Everyday Basic: 1 intra-op thread per ONNX model, no spinning.
 python tools/demo_basic_body_cpu.py --max-frames 300
 
 # Optional A/B tests, only if you deliberately want to compare variants:
+python tools/demo_basic_body_cpu.py --max-frames 300 --ort-threads 4 --ort-no-spin
 python tools/demo_basic_body_cpu.py --max-frames 300 --ort-threads 8 --ort-no-spin
 python tools/demo_basic_body_cpu.py --max-frames 300 --ort-threads 0 --ort-spin
 ```
@@ -171,7 +177,7 @@ The difference between `--ort-threads 0` and previous CPU-saturating
 default also depends on `--ort-no-spin` / `--ort-spin`.
 
 ```bash
-# Only ONNX Runtime intra-op threads are set to 1 for each inference session:
+# 1 intra-op thread per ONNX inference session (also the Basic default):
 python tools/demo_basic_body_cpu.py --max-frames 300 --ort-threads 1 --ort-no-spin
 ```
 
@@ -179,6 +185,9 @@ This does not turn the entire process into a single-threaded application:
 OpenCV and the Kinect2 broker remain independent, and there are two ONNX
 Runtime models. Changing thread count does not change model architecture
 or pixels, but may increase per-frame latency or reduce FPS. Compare the
-final metrics with the known-good 4-thread Basic profile. Basic's **default
-remains 4 threads and no spinning** until a sustained on-hardware comparison
-justifies a change. Percentage CPU alone is not the acceptance criterion.
+final metrics with the previous 2/4-thread profiles. Following the
+maintainer's visual confirmation, Basic now **defaults to 1 thread and
+no spinning**, while 2/4 and the original auto-thread behavior remain
+available for optional benchmarking. This is the number of ONNX intra-op
+threads per inference session, not the total number of threads in Python.
+Percentage CPU alone is not the acceptance criterion.

@@ -101,7 +101,7 @@ class RtmposeAdapterTests(TestCase):
 
     def test_hardware_selected_basic_defaults_are_lazy_and_bounded(self):
         with mock.patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(adapter._cpu_tuning(), (4, True))
+            self.assertEqual(adapter._cpu_tuning(), (1, True))
         # Advanced can still explicitly restore an untuned RTMLib baseline.
         with mock.patch.dict(os.environ, {
             adapter.THREADS_ENV: "0", adapter.NO_SPIN_ENV: "0"
