@@ -38,6 +38,14 @@ class FrameSnapshot:
     host_time_us: int
     mapping: mmap.mmap
 
+    def as_numpy(self, *, copy: bool = True):
+        """Optional typed NumPy frame, copied by default for safe ownership.
+
+        See docs/SDK-FRAMES.md for native formats and zero-copy lifetime rules.
+        """
+        from .frame_arrays import frame_to_numpy
+        return frame_to_numpy(self, copy=copy)
+
     def close(self) -> None:
         self.mapping.close()
 

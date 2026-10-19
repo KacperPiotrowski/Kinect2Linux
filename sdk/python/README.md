@@ -63,3 +63,15 @@ PY
 Jeśli uruchomisz w innym terminalu identyczny kod ze strumieniem `"rgb"`,
 oba procesy dzielą jeden fizyczny sensor; nie potrzebują wzajemnie się znać.
 Więcej: [AUTO-SUBSCRIPTIONS.md](../../docs/AUTO-SUBSCRIPTIONS.md).
+
+## Natywne tablice RGB / IR / Depth (eksperymentalne)
+
+`FrameSnapshot.as_numpy()` daje domyślnie **własną kopię** danych NumPy,
+bezpieczną po zamknięciu klatki. `as_numpy(copy=False)` daje opcjonalny,
+tylko-do-odczytu widok pamięci, który wymaga zwolnienia wszystkich widoków
+przed wyjściem z kontekstu klatki. RGB pozostaje `uint8 BGRX` (1080×1920×4),
+IR i Depth pozostają `float32` (424×512); Depth jest w **mm**, IR jest
+surowym sygnałem podczerwieni. Nie ma automatycznej rejestracji RGB↔Depth ani
+synchronizacji czasu sensora. NumPy importuje się dopiero przy użyciu metody.
+
+Zobacz [kontrakt danych i przykłady](../../docs/SDK-FRAMES.md).
