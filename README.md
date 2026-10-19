@@ -29,6 +29,18 @@ are welcome: [Get involved](docs/COMMUNITY.md) ·
 
 Wyniki pochodzą z lokalnych testów na jednym sprzęcie, **nie** z oficjalnej certyfikacji. Szczegóły: [punkt odniesienia](docs/BASELINE-2026-10-16.md).
 
+## Modele śledzenia: Basic / Advanced / OFF (fundament API)
+
+Śledzenie AI będzie **opcjonalne, ładowane dopiero przy pierwszym użyciu**
+i niezależne od brokera kamery. **Basic** docelowo wybierze automatycznie
+sprawdzony lekki model CPU do śledzenia sylwetki, **Advanced** pozwoli zmienić
+model na dokładniejszy, a **OFF** niczego nie załaduje. Nie tworzymy własnego
+silnika AI ani nie narzucamy MediaPipe.
+
+Na razie istnieje **interfejs i OFF**, ale nie ma jeszcze włączonego modelu
+Body/Hands/Face w tej warstwie — to osobne etapy sprzętowych testów.
+[Szczegóły i kryteria akceptacji](docs/TRACKING-MODELS.md).
+
 ## Szybki start (obecny prototyp — Arch Linux)
 
 
