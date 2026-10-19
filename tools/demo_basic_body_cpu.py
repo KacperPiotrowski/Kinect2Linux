@@ -108,6 +108,7 @@ def main() -> int:
     total = 0
     skipped_total = 0
     started = time.perf_counter()
+    cpu_started = time.process_time()
     try:
         with TrackingSession("body", mode="basic") as tracker:
             with FrameClient("rgb", timeout=2.0) as rgb:
@@ -168,14 +169,18 @@ def main() -> int:
         if not args.no_preview:
             cv2.destroyAllWindows()
     if latencies:
+        total_wall_s = max(1e-6, time.perf_counter() - started)
+        process_cpu_percent = 100.0 * max(
+            0.0, time.process_time() - cpu_started) / total_wall_s
         print(f"completed={total}, inferred_fps="
-              f"{total/max(1e-6, time.perf_counter()-started):.2f}, "
+              f"{total/total_wall_s:.2f}, "
               f"median_inference_ms={statistics.median(latencies):.1f}, "
               f"worst_inference_ms={max(latencies):.1f}, "
               f"skipped_queued={skipped_total}")
         # The first inference includes ONNX model loading: report it separately
         # instead of letting warm/steady performance be confused with startup.
         warm = latencies[1:]
+        print(f"average_process_cpu_percent_of_one_core={process_cpu_percent:.1f}")
         print(f"first_inference_including_model_load_ms={latencies[0]:.1f}")
         if warm:
             print(f"warm_median_inference_ms={statistics.median(warm):.1f} "
