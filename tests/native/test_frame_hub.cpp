@@ -99,8 +99,25 @@ int main() {
     ::usleep(2000);
   }
   assert(hub.subscriber_count() == 0);
-  hub.stop();
+
+  // A fail-fast hardware exit must unlink ONLY the original owned socket,
+  // without blocking on frame producer thread shutdown.
+  assert(std::filesystem::exists(path));
+  hub.unlink_endpoint_for_exit();
   assert(!std::filesystem::exists(path));
+  hub.unlink_endpoint_for_exit();  // idempotent
+  // Simulate a foreign replacement pathname. Neither emergency cleanup nor
+  // ordinary stop() may unlink a different inode.
+  {
+    const int foreign = ::open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0600);
+    assert(foreign >= 0);
+    assert(::close(foreign) == 0);
+  }
+  hub.unlink_endpoint_for_exit();
+  assert(std::filesystem::exists(path));
+  hub.stop();
+  assert(std::filesystem::exists(path));
+  std::filesystem::remove(path);
   assert(hub.subscriber_count() == 0);
   assert(!hub.start("/tmp/not-private/frames.sock"));
   std::filesystem::remove(dir);
