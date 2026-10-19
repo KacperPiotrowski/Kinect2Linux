@@ -53,6 +53,25 @@ wdrożenia. **Przed `activate`** konieczne jest obecne przygotowanie
 polecenie nie uruchamia sudo ani nie zmienia domyślnego źródła audio.
 [Pełny opis, ograniczenia i rollback](docs/BASIC-ADVANCED.md).
 
+## Modele śledzenia: Basic / Advanced / OFF (eksperyment)
+
+Śledzenie sylwetki jest **opcjonalne** i działa poza brokerem USB.
+Interfejs `TrackingSession` obsługuje **OFF** (bez ładowania modeli),
+**Basic** (sprawdzany na sprzęcie lekki model CPU) oraz **Advanced**
+(możliwość wyboru z listy zweryfikowanych modeli, gdy będą dostępne).
+Wszystkie modele są ładowane dopiero przy pierwszej potrzebnej klatce.
+
+Eksperymentalny Body Tracking **YOLOX-tiny + RTMPose-s**, z 17 punktami
+szkieletu 2D i obsługą wielu osób, przeszedł testy na fizycznym Kinect v2.
+Domyślny profil testowy używa jednego wątku inferencji na sesję ONNX Runtime,
+bez aktywnego oczekiwania (*spinning*); nie jest to pomiar wydajności na
+każdym komputerze. Modele i zależności są **opcjonalne** i wymagają osobnego
+przygotowania. Nie są automatycznie uruchamiane przez CLI Basic, a dłonie
+i twarz nie mają jeszcze adapterów w nowym interfejsie.
+
+[Opis interfejsu](docs/TRACKING-MODELS.md) ·
+[Instrukcja eksperymentu Body CPU](docs/BODY-BASIC-CPU.md).
+
 ## Szybki start (obecny prototyp — Arch Linux)
 
 
