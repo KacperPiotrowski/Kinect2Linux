@@ -162,3 +162,23 @@ Original behavior is recovered only with **both** `--ort-threads 0`
 and `--ort-spin`. No broker restarts or system-wide settings needed.
 The ONNX models themselves remain unchanged; no claim is made of improved
 accuracy or of a measured end-to-end FPS gain.
+
+## Single-thread experiment (2026-10-19)
+
+The `--ort-threads` CLI now accepts **1** in addition to 0, 2, 4, 8, 12
+and 16. `0` means **ONNX Runtime automatic selection**, NOT zero threads.
+The difference between `--ort-threads 0` and previous CPU-saturating
+default also depends on `--ort-no-spin` / `--ort-spin`.
+
+```bash
+# Only ONNX Runtime intra-op threads are set to 1 for each inference session:
+python tools/demo_basic_body_cpu.py --max-frames 300 --ort-threads 1 --ort-no-spin
+```
+
+This does not turn the entire process into a single-threaded application:
+OpenCV and the Kinect2 broker remain independent, and there are two ONNX
+Runtime models. Changing thread count does not change model architecture
+or pixels, but may increase per-frame latency or reduce FPS. Compare the
+final metrics with the known-good 4-thread Basic profile. Basic's **default
+remains 4 threads and no spinning** until a sustained on-hardware comparison
+justifies a change. Percentage CPU alone is not the acceptance criterion.

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import math
+import subprocess
 from pathlib import Path
 import sys
 from unittest import TestCase
@@ -90,3 +91,10 @@ class BodyPreviewTests(TestCase):
         preview.draw_body(cv, FakeImage(), invalid)
         self.assertFalse(cv.lines)
         self.assertFalse(cv.circles)
+
+    def test_cli_accepts_one_ort_intra_op_thread(self):
+        # --help runs before optional OpenCV, sensor or model initialization.
+        command = [sys.executable, str(ROOT / "tools/demo_basic_body_cpu.py"), "--help"]
+        result = subprocess.run(command, text=True, capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("{0,1,2,4,8,12,16}", result.stdout)
