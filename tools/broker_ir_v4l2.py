@@ -158,8 +158,10 @@ def bridge(*, max_frames: int) -> None:
                         frame, missed = client.receive_latest()
                     except FrameTimeoutError:
                         # Replace any last-good image with black if USB stalls.
-                        write_frame(fd, black_frame())
-                        print("IR stalled: privacy black frame sent.", file=sys.stderr)
+                        cleared = write_frame(fd, black_frame())
+                        print("IR stalled: " + ("privacy black frame written." if cleared else
+                              "black frame temporarily blocked by V4L2."),
+                              file=sys.stderr)
                         continue
                     skipped += missed
                     with frame:

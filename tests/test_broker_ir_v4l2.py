@@ -65,7 +65,8 @@ class IRBridgeTests(unittest.TestCase):
     def test_ir_float_to_yuyv_and_nonfinite(self):
         import numpy as np
         array = np.full((424, 512), 300.0, dtype=np.float32)
-        array[::4, ::4] = 700.0
+        array[::4, ::8] = 700.0
+        array[0, 0] = 700.0
         array[-1, -1] = np.nan
         converted = module.IRConverter().convert(array)
         self.assertEqual(len(converted), module.OUTPUT_BYTES)
