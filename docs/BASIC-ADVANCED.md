@@ -37,8 +37,10 @@ instaluje i uruchamia usługę `kinect2-audio-profiles.service` (tworzy Stereo
 **oraz Mono**), pozostawiając surowe cztery kanały i domyślny mikrofon systemu
 bez zmian. W aplikacjach wybierz `Kinect2_Stereo`. Nie jest to przestrzenna
 rekonstrukcja stereo ani beamforming. Jeżeli Kinect/PipeWire nie są gotowe
-podczas logowania, może być konieczny ponowny start usługi — brak hotplug
-pozostaje znanym ograniczeniem. Szczegóły w [AUDIO.md](AUDIO.md).
+podczas logowania, monitor audio poczeka na wykrycie źródła i spróbuje
+odtworzyć remapy; samo `active (running)` nie potwierdza gotowości mikrofonów.
+Mechanizm wymaga jeszcze długiego testu hotplug na fizycznym sprzęcie.
+Szczegóły w [AUDIO.md](AUDIO.md).
 
 **Częściowa aktywacja:** jeżeli kamera uruchomi się, a audio nie, polecenie
 zwraca kod błędu i wyraźnie zgłasza ten stan; nie zatrzymuje działającej kamery.
