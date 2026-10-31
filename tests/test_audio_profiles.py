@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import unittest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "tools/kinect2_audio_profiles.py"
@@ -36,6 +37,9 @@ from pathlib import Path
 dbfile = Path(os.environ["MOCK_PACTL_DB"])
 db = json.loads(dbfile.read_text())
 args = sys.argv[1:]
+if not db.get("online", True):
+    print("Connection refused", file=sys.stderr)
+    sys.exit(1)
 if args == ["list", "short", "sources"]:
     if db.get("hardware"):
         print("29\\talsa_input.usb-Microsoft_Xbox_NUI_Sensor_TEST-02.analog-surround-40\\tPipeWire\\ts32le 4ch 16000Hz\\tSUSPENDED")
@@ -56,7 +60,8 @@ elif args[:1] == ["unload-module"]:
 else:
     print("unexpected pactl invocation", args, file=sys.stderr)
     sys.exit(2)
-dbfile.write_text(json.dumps(db))
+if args[:1] in (["load-module"], ["unload-module"]):
+    dbfile.write_text(json.dumps(db))
 ''')
         pactl.chmod(0o755)
         ctl = self.bin / "systemctl"
@@ -73,6 +78,36 @@ dbfile.write_text(json.dumps(db))
 
     def db_data(self):
         return json.loads(self.db.read_text())
+
+    def save_db(self, **changes):
+        db = self.db_data()
+        db.update(changes)
+        self.db.write_text(json.dumps(db))
+
+    def wait_for(self, predicate, *, timeout=5):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                if predicate():
+                    return
+            except (OSError, ValueError, KeyError):
+                pass
+            time.sleep(0.05)
+        self.fail("audio watcher did not reach expected state within 5 seconds")
+
+    def spawn_watch(self):
+        process = subprocess.Popen(
+            ["python3", str(SCRIPT), "watch", "--poll-seconds", "0.1"],
+            env=self.env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+
+        def stop_process():
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=3)
+
+        self.addCleanup(stop_process)
+        return process
 
     def test_status_is_read_only(self):
         response = self.run_action("status")
@@ -130,7 +165,10 @@ dbfile.write_text(json.dumps(db))
         result = self.run_action("install-service")
         self.assertEqual(result.returncode, 0, result.stderr)
         unit = self.home / ".config/systemd/user/kinect2-audio-profiles.service"
-        self.assertIn("RemainAfterExit=yes", unit.read_text())
+        self.assertIn("Type=simple", unit.read_text())
+        self.assertIn("ExecStart=/usr/bin/python3 %h/.local/bin/kinect2-audio-profiles watch", unit.read_text())
+        self.assertIn("Restart=on-failure", unit.read_text())
+        self.assertNotIn("RemainAfterExit=yes", unit.read_text())
         self.assertIn("ExecStop=", unit.read_text())
         self.assertEqual(self.log.read_text().splitlines(), ["--user daemon-reload"])
         self.assertEqual(len(self.db_data()["modules"]), 1)
@@ -154,6 +192,74 @@ dbfile.write_text(json.dumps(db))
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Refusing modified/foreign unit", result.stderr)
         self.assertFalse(self.log.exists())
+
+    def test_upgrade_exact_legacy_managed_service_only(self):
+        unit = self.home / ".config/systemd/user/kinect2-audio-profiles.service"
+        unit.parent.mkdir(parents=True)
+        unit.write_text("""# Managed by Kinect2-Linux optional audio profiles.
+[Unit]
+Description=Optional Kinect v2 mono + stereo microphone sources
+After=pipewire-pulse.socket
+Wants=pipewire-pulse.socket
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/python3 %h/.local/bin/kinect2-audio-profiles start
+ExecStop=/usr/bin/python3 %h/.local/bin/kinect2-audio-profiles stop
+
+[Install]
+WantedBy=default.target
+""")
+        response = self.run_action("install-service")
+        self.assertEqual(response.returncode, 0, response.stderr)
+        self.assertIn("Upgraded the old managed audio unit", response.stdout)
+        self.assertIn("Type=simple", unit.read_text())
+        self.assertIn(" watch", unit.read_text())
+
+    def test_watcher_waits_for_late_usb_and_repairs_pulse_restart(self):
+        # Start the user service while Kinect has not yet been enumerated.
+        self.save_db(hardware=False)
+        process = self.spawn_watch()
+        time.sleep(0.2)
+        self.assertIsNone(process.poll())
+        self.assertEqual(len(self.db_data()["modules"]), 1)
+
+        # Kinect becomes visible AFTER systemd starts the watcher.
+        self.save_db(hardware=True)
+        self.wait_for(lambda: len(self.db_data()["modules"]) == 3)
+        self.assertEqual(self.run_action("status").returncode, 0)
+
+        # PipeWire disappears and comes back: old remap module IDs are lost.
+        self.save_db(online=False)
+        time.sleep(0.2)
+        db = self.db_data()
+        db["modules"] = {"17": db["modules"]["17"]}
+        db["online"] = True
+        self.db.write_text(json.dumps(db))
+        self.wait_for(lambda: len(self.db_data()["modules"]) == 3)
+        self.assertIsNone(process.poll())
+
+        # Physical hot-unplug: remove only our aliases, not a foreign one.
+        self.save_db(hardware=False)
+        self.wait_for(lambda: list(self.db_data()["modules"]) == ["17"])
+        self.assertIsNone(process.poll())
+
+        # Replugging the sensor recovers both profiles without a manual restart.
+        self.save_db(hardware=True)
+        self.wait_for(lambda: len(self.db_data()["modules"]) == 3)
+
+    def test_watcher_never_takes_over_foreign_alias(self):
+        db = self.db_data()
+        db["modules"]["23"] = {
+            "name": "module-remap-source",
+            "args": "master=" + HARDWARE + " source_name=kinect2_linux_mono remix=no",
+        }
+        self.db.write_text(json.dumps(db))
+        process = self.spawn_watch()
+        time.sleep(0.35)
+        self.assertIsNone(process.poll())
+        self.assertEqual(len(self.db_data()["modules"]), 2)
 
     def test_enable_service_explicit(self):
         result = self.run_action("enable-service")
