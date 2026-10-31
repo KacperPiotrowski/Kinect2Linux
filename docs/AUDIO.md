@@ -105,16 +105,44 @@ python3 tools/kinect2_audio_profiles.py enable-service
 Tworzona jest wyłącznie lokalna, nazwana usługa
 `systemd --user` `kinect2-audio-profiles.service`. Nie używa sudo,
 nie modyfikuje `/etc`, nie dotyka innych jednostek ani starego bridge
-RGB. Usługa działa **po zalogowaniu**, o ile źródło Kinecta jest już
-widoczne w PipeWire. W razie nieobecnego USB / awarii audio może nie
-utworzyć profili; po podłączeniu Kinecta lub restarcie PipeWire użyj:
+RGB. Usługa startuje **po zalogowaniu** i działa jako lekki monitor:
+co około 3 sekundy sprawdza PipeWire i obecność źródła Kinecta 4ch,
+a potem tworzy lub odtwarza wyłącznie dwa zarządzane remapy. Jeżeli
+Kinect zostanie wykryty z opóźnieniem, podłączony ponownie albo
+PipeWire/Pulse zrestartuje się i usunie moduły, monitor podejmie
+ponowną próbę bez ręcznego `systemctl start`.
+
+`active (running)` oznacza działanie monitora, **nie** gwarantuje
+obecności `Kinect2_Mono` ani `Kinect2_Stereo` (np. przy odłączonym
+sensorze). Sprawdź faktyczne źródła:
 
 ```bash
+systemctl --user status kinect2-audio-profiles.service --no-pager
+python3 tools/kinect2_audio_profiles.py status
+pactl list short sources
+journalctl --user -b -u kinect2-audio-profiles.service --no-pager -n 40
+```
+
+Monitor nie otwiera USB i nie zmienia źródła domyślnego. Przy odłączeniu
+sensora usuwa wyłącznie własne, zapisane remapy; obce moduły pozostają.
+To mechanizm okresowej kontroli, **nie** zdarzeniowy monitor udev.
+Scenariusze opóźnionego wykrycia i utraty modułów są testowane na
+mockach, ale trwałość po restarcie / hotplug nadal wymaga testu na
+fizycznym Kinect v2 i innych wersjach PipeWire.
+
+### Aktualizacja ze starszej jednostki oneshot
+
+Po aktualizacji kodu w trwałym katalogu projektu wykonaj:
+
+```bash
+python3 tools/kinect2_audio_profiles.py install-service
 systemctl --user restart kinect2-audio-profiles.service
 ```
 
-To jeszcze nie jest automatyczna obsługa hotplug ani automatyczne
-odtwarzanie profili po każdym restarcie serwera audio.
+Instalator rozpoznaje **tylko dokładną treść starej jednostki**
+wygenerowanej przez Kinect2Linux; obcej lub ręcznie modyfikowanej
+jednostki nie nadpisuje. `daemon-reload` odbywa się podczas instalacji,
+ale uruchomioną starszą usługę trzeba **jawnie zrestartować**.
 
 Rollback (bez usuwania natywnego 4ch):
 
