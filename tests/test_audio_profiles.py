@@ -68,7 +68,7 @@ if args[:1] in (["load-module"], ["unload-module"]):
         ctl.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$MOCK_CTL_LOG"\n')
         ctl.chmod(0o755)
         wp = self.bin / "wireplumber"
-        wp.write_text('#!/bin/sh\\necho "wireplumber 0.5.10"\\n')
+        wp.write_text('#!/bin/sh\necho "wireplumber 0.5.10"\n')
         wp.chmod(0o755)
         graph = self.bin / "pw-link"
         graph.write_text('''#!/usr/bin/env python3
@@ -293,10 +293,10 @@ WantedBy=default.target
     def test_routing_refuses_modified_file_and_symlinks(self):
         policy = self.home / ".config/wireplumber/wireplumber.conf.d/90-kinect2linux-remap-streams.conf"
         policy.parent.mkdir(parents=True)
-        policy.write_text("# custom user policy, do not touch\\n")
+        policy.write_text("# custom user policy, do not touch\n")
         self.assertNotEqual(self.run_action("install-routing").returncode, 0)
         self.assertNotEqual(self.run_action("remove-routing").returncode, 0)
-        self.assertEqual(policy.read_text(), "# custom user policy, do not touch\\n")
+        self.assertEqual(policy.read_text(), "# custom user policy, do not touch\n")
         policy.unlink()
         foreign = self.home / "foreign"
         foreign.write_text("leave me alone")
@@ -307,20 +307,20 @@ WantedBy=default.target
 
     def test_routing_rejects_wireplumber_04(self):
         wp = self.bin / "wireplumber"
-        wp.write_text('#!/bin/sh\\necho "wireplumber 0.4.17"\\n')
+        wp.write_text('#!/bin/sh\necho "wireplumber 0.4.17"\n')
         self.assertNotEqual(self.run_action("install-routing").returncode, 0)
         self.assertFalse((self.home / ".config/wireplumber").exists())
 
     def test_routing_status_checks_links_without_modifying_them(self):
         self.env["MOCK_PW_LINK_GRAPH"] = (
-            HARDWARE + ":capture_FL\\n"
-            "  |-> input.kinect2_linux_mono:input_FL\\n"
-            "input.kinect2_linux_mono:input_FL\\n"
-            "  |<- " + HARDWARE + ":capture_FL\\n"
-            "input.kinect2_linux_stereo:input_FL\\n"
-            "  |<- easyeffects_source:capture_FL\\n"
-            "input.kinect2_linux_stereo:input_FR\\n"
-            "  |<- " + HARDWARE + ":capture_FR\\n"
+            HARDWARE + ":capture_FL\n"
+            "  |-> input.kinect2_linux_mono:input_FL\n"
+            "input.kinect2_linux_mono:input_FL\n"
+            "  |<- " + HARDWARE + ":capture_FL\n"
+            "input.kinect2_linux_stereo:input_FL\n"
+            "  |<- easyeffects_source:capture_FL\n"
+            "input.kinect2_linux_stereo:input_FR\n"
+            "  |<- " + HARDWARE + ":capture_FR\n"
         )
         result = self.run_action("routing-status")
         self.assertEqual(result.returncode, 0, result.stderr)
