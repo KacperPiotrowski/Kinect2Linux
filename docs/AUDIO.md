@@ -155,6 +155,83 @@ przez skrypt moduły. Nie modyfikuje domyślnego źródła systemowego.
 Jednostka pozostaje zainstalowana, lecz wyłączona. Dodatkowo można
 ponownie sprawdzić urządzenia komendą `pactl list short sources`.
 
+### Trwałe przypięcie remapów do Kinecta — WirePlumber 0.5 (opt-in)
+
+**Zaobserwowany problem (Arch/KDE, 2026-11-02):** przy uruchomionym
+EasyEffects wewnętrzne strumienie `input.kinect2_linux_mono` oraz
+`input.kinect2_linux_stereo` mogły być podłączone do
+`easyeffects_source`, mimo że oba remapy zostały stworzone z parametrem
+`master=<fizyczne źródło Kinecta>`. Efekt: pusty WAV (100% próbek zero),
+choć `status` mówił `active (managed)`. Ręczne podłączenie portu
+`capture_FL` Kinecta do wejścia remapu Mono przywróciło głos **przy
+działającym EasyEffects**. Nie jest to dowód, że każdy użytkownik
+WirePlumber/EasyEffects doświadcza tego błędu.
+
+**Przyczyna techniczna:** `module-remap-source` w pipewire-pulse tworzy
+wewnętrzny strumień capture `input.<source_name>` z `target.object`
+ustawionym z parametru `master`. WirePlumber może zapamiętać inny cel
+lub przenieść strumień na domyślne źródło. Opcjonalna reguła
+`stream.rules` w **WirePlumber 0.5** chroni tylko dwa wewnętrzne
+strumienie Kinecta:
+
+- `state.restore-target = false` — nie odtwarzaj starego celu,
+- `node.dont-move = true` — nie przenoś strumienia przez metadane,
+- `node.dont-fallback = true` + `node.linger = true` — czekaj na
+  wybrany fizyczny Kinect, zamiast podpinać inne źródło.
+
+Nie konfigurujemy `target.object` na sztywno: robi to PipeWire przy
+tworzeniu każdego remapu na podstawie bieżącego `master`. Reguła nie
+dotyka mikrofonu RØDE, domyślnego źródła, EasyEffects Source, innych
+programów ani ich normalnej możliwości przełączania wejścia.
+
+#### Instalacja i aktywacja
+
+Z **głównego katalogu aktualnej gałęzi Kinect2Linux**, bez `sudo`:
+
+```bash
+wireplumber --version
+python3 tools/kinect2_audio_profiles.py install-routing
+python3 tools/kinect2_audio_profiles.py routing-status
+```
+
+Instalator obsługuje świadomie **WirePlumber 0.5.x**, zapisuje wyłącznie
+`~/.config/wireplumber/wireplumber.conf.d/90-kinect2linux-remap-streams.conf`
+i odmawia nadpisania obcego, zmienionego lub symlinkowanego pliku.
+Nie wymaga rebootu, nie wyłącza EasyEffects i **nie restartuje
+samodzielnie żadnej usługi**. Sama instalacja *nie zmienia jeszcze*
+istniejących połączeń — reguły działają przy tworzeniu nowych strumieni.
+
+Aby zastosować od razu, zapisz pracę w aplikacjach korzystających z
+audio i **świadomie** wykonaj (nastąpi krótka przerwa dźwięku):
+
+```bash
+systemctl --user restart wireplumber.service
+systemctl --user restart kinect2-audio-profiles.service
+sleep 4
+python3 tools/kinect2_audio_profiles.py routing-status
+```
+
+Oczekiwane trzy połączenia z **fizycznego** Kinecta:
+`Mono input_FL: OK`, `Stereo input_FL: OK`, `Stereo input_FR: OK`.
+`routing-status` jest wyłącznie diagnostyczny; `active (managed)`
+nadal oznacza *istnienie modułu*, **nie** poprawny dźwięk. Po
+uruchomieniu EasyEffects wykonaj test nagrania i **odsłuchaj WAV**.
+Test fizyczny po restarcie KDE, przełączeniu urządzeń audio i
+hotplug pozostaje konieczny przed uznaniem tej reguły za stabilną.
+
+#### Bezpieczne wycofanie
+
+```bash
+python3 tools/kinect2_audio_profiles.py remove-routing
+```
+
+Usuwany jest **tylko dokładny, niezmodyfikowany fragment**
+Kinect2Linux. Aby zastosować usunięcie natychmiast, po zapisaniu
+pracy możesz świadomie zrestartować `wireplumber.service` oraz
+`kinect2-audio-profiles.service` jak wyżej. Usunięcie reguły nie
+usuwa usług audio, źródeł 4ch ani plików stanu innych programów.
+Żadnego `rm -rf ~/.local/state/wireplumber`.
+
 ### Co zrobić, gdy zwykła aplikacja brzmi robotycznie?
 
 Bezpośrednie ALSA 4ch oraz ręczny remap pojedynczego mikrofonu brzmiały
