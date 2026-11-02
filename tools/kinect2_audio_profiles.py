@@ -278,7 +278,7 @@ def check_wireplumber_05() -> None:
     # Use the exact supported config format; do not install 0.5 snippets on
     # WirePlumber 0.4 or on an unknown session manager.
     version = command("wireplumber", "--version")
-    if not re.search(r"(?<!\\d)0\\.5\\.\\d+", version):
+    if not re.search(r"(?<!\d)0\.5\.\d+", version):
         raise AudioError(
             f"Routing installer requires WirePlumber 0.5.x; got: {version!r}."
         )
@@ -336,7 +336,7 @@ def routing_status() -> None:
             links = []
             active = False
             for line in graph.splitlines():
-                if not line.startswith((" ", "\\t")):
+                if not line.startswith((" ", "\t")):
                     active = line.strip() == header
                 elif active and line.strip().startswith("|<- "):
                     links.append(line.strip()[4:])
