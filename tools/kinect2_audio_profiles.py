@@ -289,7 +289,7 @@ def install_routing() -> None:
     check_wireplumber_05()
     file = routing_path()
     # Don't traverse a replaced .config/wireplumber or conf.d symlink.
-    for folder in (file.parent.parent, file.parent):
+    for folder in (file.parent.parent.parent, file.parent.parent, file.parent):
         if folder.is_symlink():
             raise AudioError(f"Refusing symlinked WirePlumber directory: {folder}")
         if folder.exists() and not folder.is_dir():
