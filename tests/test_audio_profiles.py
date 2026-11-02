@@ -67,6 +67,15 @@ if args[:1] in (["load-module"], ["unload-module"]):
         ctl = self.bin / "systemctl"
         ctl.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$MOCK_CTL_LOG"\n')
         ctl.chmod(0o755)
+        wp = self.bin / "wireplumber"
+        wp.write_text('#!/bin/sh\\necho "wireplumber 0.5.10"\\n')
+        wp.chmod(0o755)
+        graph = self.bin / "pw-link"
+        graph.write_text('''#!/usr/bin/env python3
+import os
+print(os.environ.get("MOCK_PW_LINK_GRAPH", ""))
+''')
+        graph.chmod(0o755)
         self.env = dict(os.environ)
         self.env.update(HOME=str(self.home), XDG_RUNTIME_DIR=str(self.runtime),
                         MOCK_PACTL_DB=str(self.db), MOCK_CTL_LOG=str(self.log))
@@ -260,6 +269,65 @@ WantedBy=default.target
         time.sleep(0.35)
         self.assertIsNone(process.poll())
         self.assertEqual(len(self.db_data()["modules"]), 2)
+
+    def test_routing_install_is_opt_in_and_idempotent(self):
+        policy = self.home / ".config/wireplumber/wireplumber.conf.d/90-kinect2linux-remap-streams.conf"
+        self.assertFalse(policy.exists())
+        self.assertEqual(self.run_action("install-service").returncode, 0)
+        self.assertFalse(policy.exists(), "regular audio service should never silently change WirePlumber")
+        result = self.run_action("install-routing")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = policy.read_text()
+        self.assertIn('node.name = "input.kinect2_linux_mono"', config)
+        self.assertIn('node.name = "input.kinect2_linux_stereo"', config)
+        self.assertIn("state.restore-target = false", config)
+        self.assertIn("node.dont-move = true", config)
+        self.assertIn("node.dont-fallback = true", config)
+        self.assertNotIn(HARDWARE, config, "never embed one sensor serial in distributed policy")
+        self.assertEqual(self.run_action("install-routing").returncode, 0)
+        self.assertEqual(policy.read_text(), config)
+        self.assertEqual(self.run_action("remove-routing").returncode, 0)
+        self.assertFalse(policy.exists())
+        self.assertEqual(self.run_action("remove-routing").returncode, 0)
+
+    def test_routing_refuses_modified_file_and_symlinks(self):
+        policy = self.home / ".config/wireplumber/wireplumber.conf.d/90-kinect2linux-remap-streams.conf"
+        policy.parent.mkdir(parents=True)
+        policy.write_text("# custom user policy, do not touch\\n")
+        self.assertNotEqual(self.run_action("install-routing").returncode, 0)
+        self.assertNotEqual(self.run_action("remove-routing").returncode, 0)
+        self.assertEqual(policy.read_text(), "# custom user policy, do not touch\\n")
+        policy.unlink()
+        foreign = self.home / "foreign"
+        foreign.write_text("leave me alone")
+        policy.symlink_to(foreign)
+        self.assertNotEqual(self.run_action("install-routing").returncode, 0)
+        self.assertNotEqual(self.run_action("remove-routing").returncode, 0)
+        self.assertEqual(foreign.read_text(), "leave me alone")
+
+    def test_routing_rejects_wireplumber_04(self):
+        wp = self.bin / "wireplumber"
+        wp.write_text('#!/bin/sh\\necho "wireplumber 0.4.17"\\n')
+        self.assertNotEqual(self.run_action("install-routing").returncode, 0)
+        self.assertFalse((self.home / ".config/wireplumber").exists())
+
+    def test_routing_status_checks_links_without_modifying_them(self):
+        self.env["MOCK_PW_LINK_GRAPH"] = (
+            HARDWARE + ":capture_FL\\n"
+            "  |-> input.kinect2_linux_mono:input_FL\\n"
+            "input.kinect2_linux_mono:input_FL\\n"
+            "  |<- " + HARDWARE + ":capture_FL\\n"
+            "input.kinect2_linux_stereo:input_FL\\n"
+            "  |<- easyeffects_source:capture_FL\\n"
+            "input.kinect2_linux_stereo:input_FR\\n"
+            "  |<- " + HARDWARE + ":capture_FR\\n"
+        )
+        result = self.run_action("routing-status")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Mono input_FL: OK (physical Kinect)", result.stdout)
+        self.assertIn("Stereo input_FL: WRONG: easyeffects_source:capture_FL", result.stdout)
+        self.assertIn("Stereo input_FR: OK (physical Kinect)", result.stdout)
+        self.assertEqual(len(self.db_data()["modules"]), 1)
 
     def test_enable_service_explicit(self):
         result = self.run_action("enable-service")
