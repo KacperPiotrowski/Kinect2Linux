@@ -15,6 +15,39 @@ PREFIX = "alsa_input.usb-Microsoft_Xbox_NUI_Sensor_"
 SUFFIX = ".analog-surround-40"
 STATE_FILE = "kinect2-linux-audio-profiles.json"
 SERVICE = "kinect2-audio-profiles.service"
+ROUTING_FRAGMENT = "90-kinect2linux-remap-streams.conf"
+# WirePlumber 0.5 stream rules match only the internal *capture streams* of our
+# module-remap-source aliases. PipeWire sets target.object from master=<Kinect>
+# at module creation; these rules keep WirePlumber from replacing that target
+# with a remembered/default source such as easyeffects_source.
+ROUTING_CONFIG = """# Managed by Kinect2Linux: only internal Kinect remap capture streams.
+# The actual Kinect master is assigned dynamically by PipeWire from 'master='.
+# Never apply these properties to physical devices or regular applications.
+stream.rules = [
+  {
+    matches = [ { node.name = "input.kinect2_linux_mono" } ]
+    actions = {
+      update-props = {
+        state.restore-target = false
+        node.dont-move = true
+        node.dont-fallback = true
+        node.linger = true
+      }
+    }
+  }
+  {
+    matches = [ { node.name = "input.kinect2_linux_stereo" } ]
+    actions = {
+      update-props = {
+        state.restore-target = false
+        node.dont-move = true
+        node.dont-fallback = true
+        node.linger = true
+      }
+    }
+  }
+]
+"""
 PROFILES = {
     "mono": ("kinect2_linux_mono", "mono", "front-left", "Kinect2_Mono"),
     "stereo": ("kinect2_linux_stereo", "front-left,front-right",
@@ -226,6 +259,97 @@ def status() -> None:
     print("Original Kinect 4ch stays available independently of these profiles.")
 
 
+def routing_path() -> Path:
+    return Path.home() / ".config/wireplumber/wireplumber.conf.d" / ROUTING_FRAGMENT
+
+
+def managed_routing_config() -> bool:
+    file = routing_path()
+    if file.is_symlink():
+        raise AudioError(f"Refusing symlinked WirePlumber configuration: {file}")
+    if not file.exists():
+        return False
+    if not file.is_file() or file.read_text(encoding="utf-8") != ROUTING_CONFIG:
+        raise AudioError(f"Refusing modified/foreign WirePlumber configuration: {file}")
+    return True
+
+
+def check_wireplumber_05() -> None:
+    # Use the exact supported config format; do not install 0.5 snippets on
+    # WirePlumber 0.4 or on an unknown session manager.
+    version = command("wireplumber", "--version")
+    if not re.search(r"(?<!\\d)0\\.5\\.\\d+", version):
+        raise AudioError(
+            f"Routing installer requires WirePlumber 0.5.x; got: {version!r}."
+        )
+
+
+def install_routing() -> None:
+    """Opt-in, per-user WirePlumber routing policy. Never restart live audio."""
+    check_wireplumber_05()
+    file = routing_path()
+    # Don't traverse a replaced .config/wireplumber or conf.d symlink.
+    for folder in (file.parent.parent, file.parent):
+        if folder.is_symlink():
+            raise AudioError(f"Refusing symlinked WirePlumber directory: {folder}")
+        if folder.exists() and not folder.is_dir():
+            raise AudioError(f"Not a WirePlumber directory: {folder}")
+    if managed_routing_config():
+        print(f"Routing policy already installed: {file}")
+        return
+    file.parent.mkdir(parents=True, exist_ok=True)
+    with file.open("x", encoding="utf-8") as output:
+        output.write(ROUTING_CONFIG)
+    print(f"Installed Kinect-only WirePlumber routing policy: {file}")
+    print("Applies on the next WirePlumber login/restart and remap recreation.")
+    print("To activate now, read docs/AUDIO.md and restart only the user audio services explicitly.")
+
+
+def remove_routing() -> None:
+    """Remove ONLY the exact managed fragment; do not touch other config."""
+    file = routing_path()
+    if managed_routing_config():
+        file.unlink()
+        print(f"Removed Kinect-only routing policy: {file}")
+        print("Restart WirePlumber to apply the removal.")
+    else:
+        print("No Kinect2Linux routing policy installed; nothing changed.")
+
+
+def routing_status() -> None:
+    """Report configuration state and actual graph links without modifying them."""
+    print("Routing policy:", "installed" if managed_routing_config() else "not installed")
+    try:
+        master = hardware_source()
+        graph = command("pw-link", "-iol")
+    except AudioError as exc:
+        print(f"Live link inspection unavailable: {exc}")
+        return
+    targets = {
+        "Mono": {"input_FL": "capture_FL"},
+        "Stereo": {"input_FL": "capture_FL", "input_FR": "capture_FR"},
+    }
+    for label, ports in targets.items():
+        name = "input.kinect2_linux_" + label.lower()
+        for input_port, capture_port in ports.items():
+            header = f"{name}:{input_port}"
+            links = []
+            active = False
+            for line in graph.splitlines():
+                if not line.startswith((" ", "\\t")):
+                    active = line.strip() == header
+                elif active and line.strip().startswith("|<- "):
+                    links.append(line.strip()[4:])
+            expected = f"{master}:{capture_port}"
+            if links == [expected]:
+                outcome = "OK (physical Kinect)"
+            elif not links:
+                outcome = "UNCONNECTED"
+            else:
+                outcome = "WRONG: " + ", ".join(links)
+            print(f"{label} {input_port}: {outcome}")
+
+
 def install_service(enable: bool) -> None:
     if not Path("/usr/bin/python3").is_file():
         raise AudioError("Service requires /usr/bin/python3.")
@@ -316,7 +440,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Optional Kinect v2 4ch + Mono + Stereo PipeWire sources.")
     parser.add_argument("action", nargs="?", choices=("status", "start", "stop", "watch",
                                                       "install-service", "enable-service",
-                                                      "disable-service"), default="status")
+                                                      "disable-service", "install-routing",
+                                                      "remove-routing", "routing-status"),
+                        default="status")
     parser.add_argument("--poll-seconds", type=float, default=3.0,
                         help="Watch retry interval (default: 3s).")
     args = parser.parse_args()
@@ -333,6 +459,12 @@ def main() -> int:
             status()
         elif args.action == "watch":
             watch(args.poll_seconds)
+        elif args.action == "install-routing":
+            install_routing()
+        elif args.action == "remove-routing":
+            remove_routing()
+        elif args.action == "routing-status":
+            routing_status()
         elif args.action in ("install-service", "enable-service"):
             install_service(enable=args.action == "enable-service")
         elif args.action == "disable-service":
