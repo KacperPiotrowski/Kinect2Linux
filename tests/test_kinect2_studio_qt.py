@@ -47,8 +47,8 @@ class StudioImageTests(unittest.TestCase):
             [[np.nan, np.inf], [500.0, 4500.0]], dtype=np.float32))
         self.assertEqual((image.width(), image.height()), (2, 2))
         self.assertEqual(image.pixelColor(0, 0).red(), 0)
-        self.assertGreater(image.pixelColor(1, 0).red() +
-                           image.pixelColor(1, 0).blue(), 0)
+        self.assertGreater(image.pixelColor(0, 1).red() +
+                           image.pixelColor(0, 1).blue(), 0)
 
 
 if __name__ == "__main__":
