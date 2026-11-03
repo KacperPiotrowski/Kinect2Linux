@@ -29,6 +29,16 @@ are welcome: [Get involved](docs/COMMUNITY.md) ·
 
 Wyniki pochodzą z lokalnych testów na jednym sprzęcie, **nie** z oficjalnej certyfikacji. Szczegóły: [punkt odniesienia](docs/BASELINE-2026-10-16.md).
 
+## Kinect2 Studio — eksperymentalna aplikacja okienkowa
+
+Pierwsze **GUI w PySide6** pokazuje RGB, Infrared i false-colour Depth jako
+trzech niezależnych klientów obecnego brokera, plus stan źródeł audio.
+Podgląd uruchamiany jest wyłącznie po kliknięciu Start; nie modyfikuje
+usług, USB ani PipeWire. Modele AI, motion capture i nagrywanie sesji
+nie są jeszcze zintegrowane. Testy sprzętowe GUI pozostają do wykonania.
+
+Uruchomienie i ograniczenia: [Kinect2 Studio](docs/KINECT2-STUDIO.md).
+
 ## Basic / Advanced — jeden projekt, jeden broker
 
 **Basic ukrywa złożoność, nie funkcje. Advanced udostępnia kontrolę, nie
