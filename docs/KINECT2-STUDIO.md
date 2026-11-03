@@ -36,6 +36,48 @@ systemctl --user is-active kinect2-broker.service
 ./kinect2 status
 ~~~
 
+## Opcjonalny Motion Capture 2D (RTMPose-s, CPU)
+
+W menu obok Basic/Advanced znajduje się **Szkielet 2D · CPU**, domyślnie
+wyłączony. Włącz go **przed** kliknięciem Start podglądu. Wtedy wątek RGB
+przekazuje własną klatkę obrazu do istniejącego TrackingSession("body",
+mode="basic") i nakłada zielony szkielet 17 punktów COCO na **dokładnie
+tę samą** klatkę RGB. IR i Depth pozostają bez zmian. Start/Stop nadal
+dotyczą wyłącznie naszych trzech subskrypcji brokera.
+
+Model potrzebuje **dwóch lokalnych plików ONNX** w katalogu models.
+Żadne wagi nie są dołączone do Git ani pobierane przy uruchamianiu aplikacji.
+Jeśli nie były jeszcze przygotowane, wykonaj osobno, świadomie:
+
+~~~bash
+. .venv-studio/bin/activate
+python -m pip install 'rtmlib==0.0.16' 'onnxruntime==1.31.0'
+# Wymaga przeglądu licencji/modeli i wyraźnej zgody na pobranie:
+python3 tools/prepare_rtmpose_body.py --download
+python tools/kinect2_studio.py
+~~~
+
+Szczegóły źródeł modeli, wymagań i licencji: [BODY-BASIC-CPU.md](BODY-BASIC-CPU.md).
+Nie wykonuj pobierania, jeśli modele już leżą w models. Brak bibliotek/wag
+nie wyłącza RGB: Studio wyświetla powód niedostępności śledzenia i
+pokazuje sam obraz. Modele są ładowane dopiero przy pierwszej klatce
+RGB po zaznaczeniu opcji. Podczas pierwszego startu może być krótka pauza
+w odświeżaniu RGB, ale interfejs Qt działa w osobnym wątku. Aby przełączyć
+śledzenie, kliknij Stop, zmień opcję i ponownie Start.
+
+**To jest 2D, a nie Kinect SDK 2.0 Body Tracking 3D:** punkty
+pochodzą wyłącznie z obrazu RGB. Nie są metrycznie rejestrowane z Depth,
+nie podajemy odległości ani ID osoby, nie tworzymy danych biometrycznych
+do uwierzytelniania. FPS wyświetlony na podglądzie dotyczy prezentowanych
+klatek, nie częstotliwości sprzętowego Kinecta. Czas inferencji znajduje
+się w polu diagnostyki Body Tracking.
+
+Bez modeli/bez Qt test geometrii:
+
+~~~bash
+python3 -m unittest discover -s tests -p 'test_kinect2_studio_pose.py' -v
+~~~
+
 ## Widok Basic / Advanced
 
 - **Basic:** niezależny podgląd RGB (BGRX), IR oraz false-colour Depth.
@@ -52,9 +94,9 @@ systemctl --user is-active kinect2-broker.service
 - IR jest skalowane dla podglądu; nie modyfikujemy natywnych klatek.
 - Depth pokazuje kolor od 500 do 4500 mm, nie tworzy chmury XYZ i
   nie dokłada danych RGB (brak kalibracji/rejestracji).
-- Pierwszy prototyp **nie ma** motion capture, nagrywania sesji, eksportu
-  danych, podglądu z czterech mikrofonów ani automatycznego installer GUI.
-  Aktualny eksperyment 2D body: tools/demo_basic_body_cpu.py.
+- Pierwszy prototyp ma opcjonalny **overlay body 2D** z już istniejącego
+  RTMPose-s, ale **nie ma śledzenia 3D**, nagrywania sesji, eksportu danych,
+  podglądu czterech mikrofonów ani automatycznego instalatora.
 - Każdy strumień ma własny wątek z ograniczonym timeoutem i odbiera
   najnowsze klatki zamiast zapychać GUI kolejką. Podgląd prezentuje najwyżej
   10 klatek na sekundę z każdego strumienia: **FPS w GUI nie jest FPS
@@ -80,8 +122,8 @@ usunąć opcjonalne środowisko .venv-studio, jeśli już go nie chcesz.
 
 1. Testy prawdziwych klatek RGB/IR/Depth, FPS, rozłączania i restartu
    brokera bez utraty innych odbiorców.
-2. Integracja opcjonalnego RTMPose-s (17 punktów 2D) w GUI, bez
-   automatycznego pobierania modeli.
+2. Dopracowanie opcjonalnego RTMPose-s 2D: testy CPU i zamykania
+   pierwszego ładowania ONNX bez wpływu na inne strumienie.
 3. Zakładka Audio Lab: RØDE / Kinect 4ch / Mono / Stereo, odsłuch,
    porównanie A/B oraz diagnostyka poprawności routingu.
 4. Rejestracja i odtwarzanie sesji z jawnym przyciskiem nagrywania;
