@@ -17,10 +17,10 @@ sys.path.insert(0, str(ROOT / "sdk" / "python"))
 
 try:
     import numpy as np
-    from PySide6.QtCore import Qt, QThread, Signal
-    from PySide6.QtGui import QImage, QPixmap
+    from PySide6.QtCore import Qt, QPointF, QThread, Signal
+    from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
     from PySide6.QtWidgets import (
-        QApplication, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
+        QApplication, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
         QMainWindow, QPushButton, QSplitter, QVBoxLayout, QWidget,
     )
 except ImportError as exc:
@@ -33,6 +33,8 @@ from kinect2_linux.frame_client import (  # noqa: E402
     FrameClient, FrameTimeoutError,
 )
 from kinect2_studio_core import audio_presence, broker_summary  # noqa: E402
+from kinect2_studio_pose import skeleton_geometry  # noqa: E402
+from kinect2_linux.tracking import TrackingSession, TrackingUnavailable  # noqa: E402
 
 
 def frame_image(kind: str, array) -> QImage:
@@ -83,15 +85,52 @@ def frame_image(kind: str, array) -> QImage:
     ).copy()
 
 
+def overlay_body(image: QImage, result) -> QImage:
+    """Draw COCO-17 2D joints on this exact RGB snapshot, never on Depth."""
+    lines, joints = skeleton_geometry(result)
+    painter = QPainter(image)
+    try:
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        pen = QPen(QColor("#56efbb"))
+        pen.setWidth(3)
+        painter.setPen(pen)
+        width = image.width() - 1
+        height = image.height() - 1
+        for a, b in lines:
+            painter.drawLine(QPointF(a[0] * width, a[1] * height),
+                             QPointF(b[0] * width, b[1] * height))
+        painter.setPen(QPen(QColor("#101923"), 1))
+        painter.setBrush(QColor("#b6ff5b"))
+        for x, y in joints:
+            painter.drawEllipse(QPointF(x * width, y * height), 3.5, 3.5)
+    finally:
+        painter.end()
+    return image
+
+
 class StreamWorker(QThread):
     received = Signal(str, QImage, float, float, int)
     state = Signal(str, str)
+    pose_status = Signal(str)
 
-    def __init__(self, kind: str):
+    def __init__(self, kind: str, *, body_tracking: bool = False):
         super().__init__()
         self.kind = kind
+        self.body_tracking = bool(body_tracking and kind == "rgb")
 
     def run(self):
+        # A separate TrackingSession is created ONLY on explicit user opt-in.
+        # It owns no USB. Its models initialize lazily on the first RGB frame.
+        tracker = TrackingSession("body", mode="basic") if self.body_tracking else None
+        if tracker is not None:
+            self.pose_status.emit("Ładowanie RTMPose-s po pierwszej klatce…")
+        try:
+            self._run_capture(tracker)
+        finally:
+            if tracker is not None:
+                tracker.close()
+
+    def _run_capture(self, tracker):
         while not self.isInterruptionRequested():
             try:
                 with FrameClient(self.kind, timeout=0.8) as camera:
@@ -118,6 +157,28 @@ class StreamWorker(QThread):
                                       frame.host_time_us) / 1000.0,
                             )
                         image = frame_image(self.kind, pixels)
+                        if tracker is not None:
+                            try:
+                                # Match the preview 960x540 RGB geometry:
+                                # BGRX -> BGR, no changes to broker frames.
+                                bgr = np.ascontiguousarray(pixels[::2, ::2, :3])
+                                start_infer = time.perf_counter()
+                                result = tracker.process(bgr)
+                                elapsed = (time.perf_counter() - start_infer) * 1000
+                                overlay_body(image, result)
+                                self.pose_status.emit(
+                                    f"{len(result.subjects)} osób · {elapsed:.0f} ms "
+                                    "(CPU, 17 punktów 2D)"
+                                )
+                            except (TrackingUnavailable, ImportError, OSError,
+                                    RuntimeError, ValueError, TypeError) as exc:
+                                # Fail open for RGB: a missing ONNX file must not
+                                # break an otherwise healthy camera preview.
+                                self.pose_status.emit(
+                                    "Śledzenie niedostępne: " + str(exc)[:140]
+                                )
+                                tracker.close()
+                                tracker = None
                         last_presented = moment
                         count += 1
                         now = time.monotonic()
@@ -266,6 +327,12 @@ class StudioWindow(QMainWindow):
         self.mode.addItems(["Basic", "Advanced"])
         self.mode.currentIndexChanged.connect(self._set_mode)
         top.addWidget(self.mode)
+        self.pose_check = QCheckBox("Szkielet 2D · CPU")
+        self.pose_check.setToolTip(
+            "Opcjonalny RTMPose-s (17 punktów COCO); wymaga lokalnych modeli. "
+            "Włącz przed rozpoczęciem podglądu. Bez 3D i bez pobierania modeli."
+        )
+        top.addWidget(self.pose_check)
         self.start_btn = QPushButton("▶ Start podglądu")
         self.start_btn.setObjectName("start")
         self.start_btn.clicked.connect(self.start_preview)
@@ -313,6 +380,8 @@ class StudioWindow(QMainWindow):
         self.raw_audio = field("Fizyczny Kinect 4ch")
         self.mono = field("Kinect2_Mono")
         self.stereo = field("Kinect2_Stereo")
+        self.pose_result = field("Body Tracking 2D (CPU)")
+        self.pose_result.setText("Wyłączony")
         self.info = QLabel(
             "Podgląd na żywo. Nie zapisujemy obrazu, dźwięku ani danych "
             "biometrycznych. Nie otwieramy fizycznego USB."
@@ -334,8 +403,8 @@ class StudioWindow(QMainWindow):
         outer.addWidget(splitter, 1)
 
         foot = QLabel(
-            "Wersja demonstracyjna · Motion capture 2D i nagrywanie sesji "
-            "są planowane w kolejnych etapach."
+            "Motion Capture: tylko 2D (COCO-17, z RGB). "
+            "Pełne śledzenie 3D i nagrywanie sesji nie są jeszcze dostępne."
         )
         foot.setObjectName("small")
         outer.addWidget(foot)
@@ -362,11 +431,19 @@ class StudioWindow(QMainWindow):
             return
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
+        self.pose_check.setEnabled(False)  # Stop before changing inference mode.
+        self.pose_result.setText(
+            "Oczekiwanie na RGB" if self.pose_check.isChecked() else "Wyłączony"
+        )
         for kind, tile in self.tiles.items():
             tile.show_state("Łączenie z brokerem…")
-            worker = StreamWorker(kind)
+            worker = StreamWorker(
+                kind, body_tracking=(kind == "rgb" and self.pose_check.isChecked())
+            )
             worker.received.connect(self._show_frame)
             worker.state.connect(self._show_state)
+            if kind == "rgb":
+                worker.pose_status.connect(self.pose_result.setText)
             self._workers[kind] = worker
             worker.start()
 
@@ -389,6 +466,8 @@ class StudioWindow(QMainWindow):
             tile.reset()
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
+        self.pose_check.setEnabled(True)
+        self.pose_result.setText("Wyłączony")
 
     def closeEvent(self, event):
         self.stop_preview()
