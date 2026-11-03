@@ -99,12 +99,18 @@ class StreamWorker(QThread):
                     window_at = time.monotonic()
                     count = 0
                     fps = 0.0
+                    last_presented = 0.0
                     while not self.isInterruptionRequested():
                         try:
                             frame, _skipped = camera.receive_latest(max_pending=16)
                         except FrameTimeoutError:
                             continue
+                        moment = time.monotonic()
                         with frame:
+                            # Bound GUI image conversion/Qt signal traffic to
+                            # 10 FPS per panel. Native broker capture is unchanged.
+                            if moment - last_presented < 0.10:
+                                continue
                             pixels = frame.as_numpy()  # safe owned copy
                             seq = frame.sequence
                             age_ms = max(
@@ -112,6 +118,7 @@ class StreamWorker(QThread):
                                       frame.host_time_us) / 1000.0,
                             )
                         image = frame_image(self.kind, pixels)
+                        last_presented = moment
                         count += 1
                         now = time.monotonic()
                         if now - window_at >= 1.0:
@@ -183,6 +190,7 @@ class PreviewTile(QFrame):
         self._rescale()
 
     def show_state(self, message: str):
+        self.metrics.setText(message)
         if self._image is None:
             self.display.setText(message)
 
@@ -337,7 +345,10 @@ class StudioWindow(QMainWindow):
         self._status.start()
 
     def _set_mode(self):
-        self.advanced.setVisible(self.mode.currentText() == "Advanced")
+        is_advanced = self.mode.currentText() == "Advanced"
+        self.advanced.setVisible(is_advanced)
+        for tile in self.tiles.values():
+            tile.metrics.setVisible(is_advanced)
 
     def _update_status(self, data):
         self.broker.setText(data["broker"])
