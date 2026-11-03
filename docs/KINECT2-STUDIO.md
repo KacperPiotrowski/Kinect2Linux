@@ -56,8 +56,9 @@ systemctl --user is-active kinect2-broker.service
   danych, podglądu z czterech mikrofonów ani automatycznego installer GUI.
   Aktualny eksperyment 2D body: tools/demo_basic_body_cpu.py.
 - Każdy strumień ma własny wątek z ograniczonym timeoutem i odbiera
-  najnowsze klatki zamiast zapychać GUI kolejką. Nie zakłada
-  synchronizacji trzech niezależnych strumieni.
+  najnowsze klatki zamiast zapychać GUI kolejką. Podgląd prezentuje najwyżej
+  10 klatek na sekundę z każdego strumienia: **FPS w GUI nie jest FPS
+  sprzętowego sensora**. Nie zakłada synchronizacji trzech strumieni.
 - Testy GUI na prawdziwym Kinect v2 + KDE, Wayland/X11 i wydajność
   RGB+IR+Depth są **do wykonania**. CI bez wyświetlacza uruchamia
   tylko testy komponentów niezależnych od Qt.
