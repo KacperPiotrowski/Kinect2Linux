@@ -34,6 +34,22 @@ class StudioImageTests(unittest.TestCase):
         bgrx[:] = 0
         self.assertEqual(image.pixelColor(0, 0).red(), 129)
 
+    def test_pose_overlay_marks_valid_rgb_joints(self):
+        from kinect2_studio import overlay_body
+        from kinect2_studio_pose import skeleton_geometry
+        from kinect2_linux.tracking import Keypoint, TrackedSubject, TrackingResult
+
+        image = self.convert("rgb", self.np.zeros((200, 200, 4),
+                            dtype=self.np.uint8))
+        points = tuple(Keypoint(str(i), .5, .5, .9) for i in range(17))
+        result = TrackingResult(
+            task="body", subjects=(TrackedSubject("person", points),)
+        )
+        self.assertEqual(len(skeleton_geometry(result)[1]), 17)
+        overlay_body(image, result)
+        # A valid point is drawn at the center of the 100x100 Qt preview.
+        self.assertNotEqual(image.pixelColor(49, 49).name(), "#000000")
+
     def test_ir_invalid_readings_do_not_crash(self):
         np = self.np
         image = self.convert("ir", np.array(
