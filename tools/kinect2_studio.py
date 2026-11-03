@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT / "sdk" / "python"))
 
 try:
     import numpy as np
-    from PySide6.QtCore import Qt, QPointF, QThread, Signal
+    from PySide6.QtCore import Qt, QPointF, QThread, QTimer, Signal
     from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
@@ -282,6 +282,8 @@ class StudioWindow(QMainWindow):
         self.setWindowTitle("Kinect2 Studio — eksperymentalne GUI")
         self.resize(1350, 870)
         self._workers: dict[str, StreamWorker] = {}
+        self._stopping = False
+        self._closing = False
 
         self.setStyleSheet("""
             QMainWindow, QWidget { background: #111821; color: #e9eff7; font-size: 13px; }
@@ -427,7 +429,7 @@ class StudioWindow(QMainWindow):
         self.stereo.setText("Dostępne" if audio["stereo"] else "Brak / nieznane")
 
     def start_preview(self):
-        if self._workers:
+        if self._workers or self._stopping or self._closing:
             return
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
@@ -445,6 +447,9 @@ class StudioWindow(QMainWindow):
             if kind == "rgb":
                 worker.pose_status.connect(self.pose_result.setText)
             self._workers[kind] = worker
+            worker.finished.connect(
+                lambda key=kind: self._worker_finished(key)
+            )
             worker.start()
 
     def _show_frame(self, kind, image, fps, age, seq):
@@ -456,23 +461,50 @@ class StudioWindow(QMainWindow):
             self.tiles[kind].show_state(message)
 
     def stop_preview(self):
-        workers = list(self._workers.values())
-        for worker in workers:
+        if not self._workers or self._stopping:
+            return
+        # Do NOT destroy a QThread still initializing ONNX models. A 2.5 s
+        # blocking wait was enough for bare RGB but not for lazy AI startup.
+        self._stopping = True
+        self.stop_btn.setEnabled(False)
+        self.start_btn.setEnabled(False)
+        self.pose_check.setEnabled(False)
+        self.pose_result.setText("Zatrzymywanie…")
+        for worker in self._workers.values():
             worker.requestInterruption()
-        for worker in workers:
-            worker.wait(2500)
-        self._workers.clear()
+
+    def _worker_finished(self, kind: str):
+        worker = self._workers.get(kind)
+        if worker is None:
+            return
+        # The finished signal is emitted right before full thread exit.
+        # Wait only for this already-completed worker to avoid a spin loop.
+        worker.wait()
+        del self._workers[kind]
+        if self._workers:
+            return
+        self._stopping = False
         for tile in self.tiles.values():
             tile.reset()
-        self.start_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
-        self.pose_check.setEnabled(True)
         self.pose_result.setText("Wyłączony")
+        self.start_btn.setEnabled(not self._closing)
+        self.stop_btn.setEnabled(False)
+        self.pose_check.setEnabled(not self._closing)
+        if self._closing:
+            QTimer.singleShot(0, self.close)
 
     def closeEvent(self, event):
-        self.stop_preview()
+        self._closing = True
+        if self._workers:
+            event.ignore()
+            self.stop_preview()
+            return
         self._status.requestInterruption()
-        self._status.wait(3000)
+        if not self._status.wait(100):
+            event.ignore()
+            # Keep the window and QThread object alive until status exits.
+            QTimer.singleShot(200, self.close)
+            return
         super().closeEvent(event)
 
 
