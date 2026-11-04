@@ -41,8 +41,11 @@ systemctl --user is-active kinect2-broker.service
 W menu obok Basic/Advanced znajduje się **Szkielet 2D · CPU**, domyślnie
 wyłączony. Można go zaznaczyć **także podczas działającego podglądu**. Studio
 włącza/wyłącza analizę bez restartowania żadnej subskrypcji ani
-brokera. Wątek RGB oddaje **maksymalnie pięć klatek na sekundę**
-do osobnego wątku TrackingSession("body", mode="basic").
+brokera. Wątek RGB przekazuje dostępne klatki do jednoelementowego
+bufora osobnego wątku TrackingSession("body", mode="basic").
+Nadchodzące klatki zastępują oczekujące, jeżeli inferencja trwa dłużej.
+**Nie ma już sztucznego limitu 5 analiz/s**, ale rzeczywisty FPS
+zależy od czasu YOLOX+RTMPose i dostępnych zasobów CPU.
 ONNX nie blokuje już odbioru nowych klatek RGB. Po włączeniu opcji
 górny panel dzieli się na **bieżący obraz RGB** i **osobny podgląd
 szkieletu**. Zielone 17 punktów COCO rysowane jest na dokładnie
@@ -132,9 +135,9 @@ synchronicznie w **tym samym wątku**, który pobiera i pokazuje RGB.
 Teraz:
 - kamera RGB działa niezależnie od inferencji i pozostaje źródłem
   15+ FPS jeżeli pozwoli na to broker i CPU;
-- model dostaje co najwyżej pięć klatek RGB na sekundę i ma
-  **jednoelementowy bufor** — stare klatki wypadają, a wątek podglądu
-  nie czeka na analizę;
+- model otrzymuje najnowszą dostępną klatkę z
+  **jednoelementowego bufora**, bez sztucznego limitu 5 FPS — stare
+  klatki wypadają, a wątek podglądu nie czeka na analizę;
 - po zgłoszeniu niedopasowania szkieletu rysujemy go teraz w
   **oddzielnym panelu ze skopiowaną klatką RGB użytą przez ONNX**.
   Prawy panel może działać wolniej, ale nie rozjeżdża już sylwetki
@@ -196,6 +199,58 @@ W tej wersji podglądu czytamy surowe bufory przez
 po czym **kopiujemy wyłącznie dane do mniejszych, własnych QImage**
 zamiast kopiować całe RGB 1920×1080. Ogranicza to transfer pamięci,
 ale **nie stanowi gwarancji** FPS czy braku zacięć na sprzęcie.
+
+### Rzetelny pomiar Body CPU (przed wyborem modelu lub akceleracji)
+
+Kolejny test na Ryzenie 9 7900 pokazał **RGB 30.3 FPS** i
+**szkielet 4.7 FPS**. Nie jest to dowód ograniczeń procesora,
+ponieważ wcześniejsza ścieżka Studio miała twardy limit jednej
+klatki analizy co 200 ms, a ONNX Runtime domyślnie działa w tym
+adapterze z **jednym wątkiem**. Limit 5 FPS usunęliśmy.
+
+Narzędzie `tools/kinect2_body_bench.py` bierze **jedną klatkę
+RGB przez brokera do pamięci RAM** i wykonuje serię analiz na tej
+samej klatce bez Qt, skalowania QPixmap czy zewnętrznego dostępu
+do USB. Nie zapisuje obrazu ani danych na dysku i nie pobiera wag
+modelu. Przygotuj lokalne modele ONNX, stanąć przed kamerą i
+uruchom test przy **zamkniętym Studio**:
+
+~~~bash
+. .venv-studio/bin/activate
+python tools/kinect2_body_bench.py --warmup 3 --runs 20
+~~~
+
+Następnie porównaj *oddzielne procesy* z różną liczbą wątków CPU,
+żeby nie współdzieliły stanu/puli ONNX Runtime:
+
+~~~bash
+for t in 1 2 4 6; do
+  echo "=== ORT threads=$t ==="
+  KINECT2_BODY_ORT_THREADS="$t" \
+    python tools/kinect2_body_bench.py --warmup 3 --runs 20
+done
+~~~
+
+Narzędzie raportuje **medianę, 95. percentyl (p95), najlepszy czas**
+i przybliżony teoretyczny FPS przy sekwencyjnej inferencji, a
+także osobno koszt **YOLOX detector** oraz **RTMPose pose estimator**.
+To jest benchmark **na tej samej zapamiętanej klatce**, więc nie
+weryfikuje jakości śledzenia przy ruchu, obciążenia pozostałych
+usług ani pełnego FPS GUI. Bez wykrytej osoby wynik części
+`pose estimator` może być niewiarygodny — skrypt to sygnalizuje.
+
+Interpretacja: jeśli łączny czas analizy wynosi ~200 ms, sam
+pipeline wymaga dalszej optymalizacji/modelu lub backendu. Jeśli
+wynosi np. 30–40 ms, ogranicznik Studio był głównym winowajcą.
+Wyniki warto badać dla kilku scen, z jedną i więcej osobami,
+bez dopisywania danych z czujnika głębi, których model RGB nie
+wykorzystuje.
+
+Docelowy ekwiwalent Kinect SDK v2 **nie jest samym 2D z RGB**.
+Oryginalny SDK wykorzystywał dane głębi do śledzenia 25 stawów
+3D. Poprawa RTMPose 2D to jeden z etapów, ale wymaga osobnego
+projektu śledzenia z Depth, kalibracji oraz walidacji dokładności
+i latencji, zanim będziemy mówić o profesjonalnym Body Tracking 3D.
 
 ## Ograniczenia
 
