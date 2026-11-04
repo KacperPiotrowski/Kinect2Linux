@@ -93,6 +93,40 @@ Bez modeli/bez Qt test geometrii:
 python3 -m unittest discover -s tests -p 'test_kinect2_studio_pose.py' -v
 ~~~
 
+## Diagnostyka jakości COCO-17 — obserwacja stawów, nie „dokładność”
+
+W panelu po prawej stronie znajduje się pole
+**COCO-17 · wykryte stawy (próg score ≥ 0,45)**. W trybie śledzenia
+wyświetla dla każdej osoby liczbę punktów spełniających **jednocześnie**
+kryteria: współrzędne znormalizowane wewnątrz obrazu, wartości skończone,
+score modelu co najmniej 0,45.
+
+Dla pierwszej osoby raportuje też średni **score modelu pośród
+widocznych punktów** i maksymalnie pięć nazw brakujących stawów.
+To nie jest odległość błędu w centymetrach, pewność statystycznie
+skalibrowana ani zweryfikowana dokładność 2D. Próg 0,45 jest
+aktualną wartością używaną również do rysowania zielonych punktów.
+Nie „uzupełniamy” niewidocznych stawów i nie zapisujemy obrazów.
+
+### Próba ruchu na fizycznym Kinect v2
+
+Sprawdź kolejno: spokojną pozycję frontalną, szybkie machanie rękami,
+przysiad, obrót bokiem, a na koniec chwilowe zasłonięcie jednej ręki.
+Dla każdego ćwiczenia obserwuj **oba panele**: aktualne RGB i klatkę
+ze szkieletem. Warto zanotować (bez zapisywania wideo) trzy obserwacje:
+
+1. Czy widoczne zielone punkty rzeczywiście leżą na właściwych stawach?
+2. Które stawy znikają z pola COCO-17 i czy powracają po odsłonięciu?
+3. Czy licznik FPS analizy pozostaje blisko 30 i czy opóźnienie wyniku
+   nie rośnie stale przy dłuższym teście?
+
+Jedna osoba, która osiąga 17/17, nie dowodzi poprawnej estymacji
+w ruchu ani działania na wielu osobach. Jeśli chcemy w przyszłości
+podawać *mierzoną dokładność*, potrzebny będzie niezależny zbiór
+referencyjnych pozycji i metryki geometryczne (np. błąd punktów
+w pikselach lub po skalowaniu obrazu). Depth i współrzędne 3D
+są osobnym zadaniem: Issue #39.
+
 ## Widok Basic / Advanced
 
 - **Basic:** niezależny podgląd RGB (BGRX), IR oraz false-colour Depth.
