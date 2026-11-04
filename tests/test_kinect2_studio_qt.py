@@ -34,6 +34,57 @@ class StudioImageTests(unittest.TestCase):
         bgrx[:] = 0
         self.assertEqual(image.pixelColor(0, 0).red(), 129)
 
+    def test_pose_overlay_marks_valid_rgb_joints(self):
+        from kinect2_studio import overlay_body
+        from kinect2_studio_pose import skeleton_geometry
+        from kinect2_linux.tracking import Keypoint, TrackedSubject, TrackingResult
+
+        image = self.convert("rgb", self.np.zeros((200, 200, 4),
+                            dtype=self.np.uint8))
+        points = tuple(Keypoint(str(i), .5, .5, .9) for i in range(17))
+        result = TrackingResult(
+            task="body", subjects=(TrackedSubject("person", points),)
+        )
+        self.assertEqual(len(skeleton_geometry(result)[1]), 17)
+        overlay_body(image, result)
+        # A valid point is drawn at the center of the 100x100 Qt preview.
+        self.assertNotEqual(image.pixelColor(49, 49).name(), "#000000")
+
+    def test_latest_only_mailbox_drops_old_unrendered_frames(self):
+        from PySide6.QtGui import QImage
+        from kinect2_studio import StreamWorker
+        worker = StreamWorker("rgb")
+        first = QImage(2, 2, QImage.Format.Format_RGB888)
+        newest = QImage(2, 2, QImage.Format.Format_RGB888)
+        first.fill(0)
+        newest.fill(0xffffff)
+        worker._publish(first, 100, 1)
+        worker._publish(newest, 200, 2)
+        item = worker.take_latest()
+        self.assertEqual((item[1], item[2]), (200, 2))
+        self.assertEqual(item[0].pixelColor(0, 0).red(), 255)
+        self.assertIsNone(worker.take_latest())
+
+    def test_pose_worker_is_off_by_default_and_coalesces_frames(self):
+        from PySide6.QtGui import QImage
+        from kinect2_studio import PoseWorker
+        worker = PoseWorker()
+        one = self.np.zeros((4, 4, 3), dtype=self.np.uint8)
+        two = self.np.ones((4, 4, 3), dtype=self.np.uint8)
+        source = QImage(4, 4, QImage.Format.Format_BGR888)
+        source.fill(0)
+        worker.offer(one, source, 100, 1)
+        self.assertIsNone(worker._pending)  # Default OFF must not load models.
+        worker.set_enabled(True)
+        worker.offer(one, source, 100, 1)
+        worker.offer(two, source.copy(), 200, 2)
+        self.assertEqual(worker._pending[2:], (200, 2))
+        self.assertIs(worker._pending[0], two)
+        self.assertEqual(worker._pending[1].pixelColor(0, 0).red(), 0)
+        worker.set_enabled(False)
+        self.assertIsNone(worker._pending)
+        self.assertFalse(worker.is_enabled())
+
     def test_ir_invalid_readings_do_not_crash(self):
         np = self.np
         image = self.convert("ir", np.array(
