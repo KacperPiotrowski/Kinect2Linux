@@ -20,14 +20,16 @@ sys.path.insert(0, str(ROOT / "sdk" / "python"))
 try:
     import numpy as np
     from PySide6.QtCore import Qt, QPointF, QThread, QTimer, Signal
-    from PySide6.QtGui import QColor, QImage, QKeySequence, QPainter, QPen, QPixmap
+    from PySide6.QtGui import QColor, QImage, QKeySequence, QPainter, QPen, QPixmap, QShortcut
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
-        QMainWindow, QPushButton, QShortcut, QSplitter, QVBoxLayout, QWidget,
+        QMainWindow, QPushButton, QSplitter, QVBoxLayout, QWidget,
     )
 except ImportError as exc:
     raise SystemExit(
-        "Kinect2 Studio requires PySide6 and numpy; see docs/KINECT2-STUDIO.md"
+        f"Kinect2 Studio import error: {exc}. "
+        "If the missing module is PySide6 or numpy, install it in .venv-studio; "
+        "see docs/KINECT2-STUDIO.md."
     ) from exc
 
 from kinect2_linux import BrokerClient  # noqa: E402
