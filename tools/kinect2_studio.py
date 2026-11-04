@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,7 +50,8 @@ def frame_image(kind: str, array) -> QImage:
         ).copy()
 
     if kind == "ir":
-        good = array[np.isfinite(array) & (array > 0)]
+        sample = array[::4, ::4]
+        good = sample[np.isfinite(sample) & (sample > 0)]
         if good.size < 32:
             gray = np.zeros(array.shape, dtype=np.uint8)
         else:
@@ -109,7 +111,6 @@ def overlay_body(image: QImage, result) -> QImage:
 
 
 class StreamWorker(QThread):
-    received = Signal(str, QImage, float, float, int)
     state = Signal(str, str)
     pose_status = Signal(str)
 
@@ -117,6 +118,19 @@ class StreamWorker(QThread):
         super().__init__()
         self.kind = kind
         self.body_tracking = bool(body_tracking and kind == "rgb")
+        self._latest_lock = threading.Lock()
+        self._latest = None
+
+    def take_latest(self):
+        """Return newest fully owned Qt image; older frames get dropped."""
+        with self._latest_lock:
+            newest = self._latest
+            self._latest = None
+            return newest
+
+    def _publish(self, image: QImage, host_time_us: int, seq: int):
+        with self._latest_lock:
+            self._latest = (image, host_time_us, seq)
 
     def run(self):
         # A separate TrackingSession is created ONLY on explicit user opt-in.
@@ -135,10 +149,7 @@ class StreamWorker(QThread):
             try:
                 with FrameClient(self.kind, timeout=0.8) as camera:
                     self.state.emit(self.kind, "Połączono")
-                    window_at = time.monotonic()
-                    count = 0
-                    fps = 0.0
-                    last_presented = 0.0
+                    last_processed = 0.0
                     while not self.isInterruptionRequested():
                         try:
                             frame, _skipped = camera.receive_latest(max_pending=16)
@@ -146,16 +157,13 @@ class StreamWorker(QThread):
                             continue
                         moment = time.monotonic()
                         with frame:
-                            # Bound GUI image conversion/Qt signal traffic to
-                            # 10 FPS per panel. Native broker capture is unchanged.
-                            if moment - last_presented < 0.10:
+                            # Keep expensive conversions below 30 Hz.
+                            # The UI will coalesce and present only newest image.
+                            if moment - last_processed < 1.0 / 30.0:
                                 continue
                             pixels = frame.as_numpy()  # safe owned copy
                             seq = frame.sequence
-                            age_ms = max(
-                                0.0, (time.monotonic_ns() // 1000 -
-                                      frame.host_time_us) / 1000.0,
-                            )
+                            host_time_us = frame.host_time_us
                         image = frame_image(self.kind, pixels)
                         if tracker is not None:
                             try:
@@ -179,13 +187,10 @@ class StreamWorker(QThread):
                                 )
                                 tracker.close()
                                 tracker = None
-                        last_presented = moment
-                        count += 1
-                        now = time.monotonic()
-                        if now - window_at >= 1.0:
-                            fps = count / (now - window_at)
-                            window_at, count = now, 0
-                        self.received.emit(self.kind, image, fps, age_ms, seq)
+                        last_processed = time.monotonic()
+                        # Bounded single-slot mailbox: the Qt event queue
+                        # never accumulates stale high-resolution frames.
+                        self._publish(image, host_time_us, seq)
             except Exception as exc:
                 if self.isInterruptionRequested():
                     break
@@ -268,7 +273,7 @@ class PreviewTile(QFrame):
         self.display.setPixmap(pixmap.scaled(
             self.display.size(),
             Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
+            Qt.TransformationMode.FastTransformation,
         ))
 
     def resizeEvent(self, event):
@@ -284,6 +289,8 @@ class StudioWindow(QMainWindow):
         self._workers: dict[str, StreamWorker] = {}
         self._stopping = False
         self._closing = False
+        self._restarting_rgb = False
+        self._present_counts = {}
 
         self.setStyleSheet("""
             QMainWindow, QWidget { background: #111821; color: #e9eff7; font-size: 13px; }
@@ -335,6 +342,7 @@ class StudioWindow(QMainWindow):
             "Włącz przed rozpoczęciem podglądu. Bez 3D i bez pobierania modeli."
         )
         top.addWidget(self.pose_check)
+        self.pose_check.toggled.connect(self._pose_toggled)
         self.start_btn = QPushButton("▶ Start podglądu")
         self.start_btn.setObjectName("start")
         self.start_btn.clicked.connect(self.start_preview)
@@ -414,6 +422,10 @@ class StudioWindow(QMainWindow):
         self._status = StatusWorker()
         self._status.report.connect(self._update_status)
         self._status.start()
+        self._render_timer = QTimer(self)
+        self._render_timer.setInterval(33)
+        self._render_timer.timeout.connect(self._render_latest)
+        self._render_timer.start()
 
     def _set_mode(self):
         is_advanced = self.mode.currentText() == "Advanced"
@@ -428,33 +440,63 @@ class StudioWindow(QMainWindow):
         self.mono.setText("Dostępne" if audio["mono"] else "Brak / nieznane")
         self.stereo.setText("Dostępne" if audio["stereo"] else "Brak / nieznane")
 
+    def _spawn_stream(self, kind: str):
+        tile = self.tiles[kind]
+        tile.show_state("Łączenie z brokerem…")
+        worker = StreamWorker(
+            kind, body_tracking=(kind == "rgb" and self.pose_check.isChecked())
+        )
+        worker.state.connect(self._show_state)
+        if kind == "rgb":
+            worker.pose_status.connect(self.pose_result.setText)
+        self._workers[kind] = worker
+        self._present_counts[kind] = [time.monotonic(), 0, 0.0]
+        worker.finished.connect(lambda key=kind: self._worker_finished(key))
+        worker.start()
+
     def start_preview(self):
         if self._workers or self._stopping or self._closing:
             return
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
-        self.pose_check.setEnabled(False)  # Stop before changing inference mode.
         self.pose_result.setText(
             "Oczekiwanie na RGB" if self.pose_check.isChecked() else "Wyłączony"
         )
-        for kind, tile in self.tiles.items():
-            tile.show_state("Łączenie z brokerem…")
-            worker = StreamWorker(
-                kind, body_tracking=(kind == "rgb" and self.pose_check.isChecked())
-            )
-            worker.received.connect(self._show_frame)
-            worker.state.connect(self._show_state)
-            if kind == "rgb":
-                worker.pose_status.connect(self.pose_result.setText)
-            self._workers[kind] = worker
-            worker.finished.connect(
-                lambda key=kind: self._worker_finished(key)
-            )
-            worker.start()
+        for kind in self.tiles:
+            self._spawn_stream(kind)
 
-    def _show_frame(self, kind, image, fps, age, seq):
-        if kind in self._workers:
-            self.tiles[kind].show_frame(image, fps, age, seq)
+    def _pose_toggled(self, checked: bool):
+        if self._stopping or self._closing or not self._workers:
+            return
+        self.pose_result.setText("Przełączanie śledzenia 2D…")
+        # Restart ONLY the RGB subscriber; IR/Depth and all other
+        # broker clients continue uninterrupted. If ONNX is still loading,
+        # the current worker finishes asynchronously without freezing Qt.
+        self._restarting_rgb = True
+        worker = self._workers.get("rgb")
+        if worker is not None:
+            worker.requestInterruption()
+
+    def _render_latest(self):
+        if self._stopping or self._closing:
+            return
+        for kind, worker in list(self._workers.items()):
+            latest = worker.take_latest()
+            if latest is None:
+                continue
+            image, host_time_us, seq = latest
+            now = time.monotonic()
+            stats = self._present_counts.get(kind)
+            if stats is None:
+                continue
+            stats[1] += 1
+            if now - stats[0] >= 1.0:
+                stats[2] = stats[1] / (now - stats[0])
+                stats[0], stats[1] = now, 0
+            age_ms = max(
+                0.0, (time.monotonic_ns() // 1000 - host_time_us) / 1000.0
+            )
+            self.tiles[kind].show_frame(image, stats[2], age_ms, seq)
 
     def _show_state(self, kind, message):
         if kind in self._workers:
@@ -466,6 +508,7 @@ class StudioWindow(QMainWindow):
         # Do NOT destroy a QThread still initializing ONNX models. A 2.5 s
         # blocking wait was enough for bare RGB but not for lazy AI startup.
         self._stopping = True
+        self._restarting_rgb = False
         self.stop_btn.setEnabled(False)
         self.start_btn.setEnabled(False)
         self.pose_check.setEnabled(False)
@@ -481,6 +524,13 @@ class StudioWindow(QMainWindow):
         # Wait only for this already-completed worker to avoid a spin loop.
         worker.wait()
         del self._workers[kind]
+        self._present_counts.pop(kind, None)
+        if (kind == "rgb" and self._restarting_rgb and not
+                self._stopping and not self._closing):
+            self._restarting_rgb = False
+            self.tiles["rgb"].reset()
+            self._spawn_stream("rgb")
+            return
         if self._workers:
             return
         self._stopping = False
