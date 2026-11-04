@@ -14,6 +14,67 @@ BONES = (
 )
 
 
+# Name order must match the existing COCO-17 RGB body adapter exactly.
+JOINT_NAMES_PL = (
+    "nos", "oko L", "oko P", "ucho L", "ucho P",
+    "bark L", "bark P", "łokieć L", "łokieć P",
+    "nadgarstek L", "nadgarstek P", "biodro L", "biodro P",
+    "kolano L", "kolano P", "kostka L", "kostka P",
+)
+
+
+def pose_quality(result, *, threshold: float = 0.45) -> tuple[dict, ...]:
+    """Report observed joint coverage and raw model scores, never 'accuracy'.
+
+    No temporal interpolation, extrapolated joints or claimed 3D accuracy.
+    A high RTMPose confidence is not a calibrated accuracy measurement.
+    Invalid or below-threshold points are always listed as missing.
+    """
+    reports = []
+    for subject in result.subjects:
+        if subject.kind != "person" or len(subject.keypoints) != 17:
+            continue
+        valid_indices = [
+            i for i, point in enumerate(subject.keypoints)
+            if visible(point, threshold)
+        ]
+        confidences = [
+            subject.keypoints[i].confidence for i in valid_indices
+        ]
+        missing = tuple(
+            name for i, name in enumerate(JOINT_NAMES_PL)
+            if i not in valid_indices
+        )
+        reports.append({
+            "visible": len(valid_indices),
+            "total": 17,
+            "mean_model_score": (
+                sum(confidences) / len(confidences) if confidences else None
+            ),
+            "missing": missing,
+        })
+    return tuple(reports)
+
+
+def pose_quality_text(reports: tuple[dict, ...]) -> str:
+    """Short, UI-safe diagnostic; no identities, inferred coordinates or logs."""
+    if not reports:
+        return "Nie wykryto sylwetki — 0/17 punktów"
+    parts = [
+        f"Osoba {i}: {entry['visible']}/{entry['total']}"
+        for i, entry in enumerate(reports, 1)
+    ]
+    primary = reports[0]
+    score = primary["mean_model_score"]
+    if score is not None:
+        parts.append(f"średni score modelu {score:.2f} (nie dokładność)")
+    if primary["missing"]:
+        omitted = ", ".join(primary["missing"][:5])
+        suffix = "…" if len(primary["missing"]) > 5 else ""
+        parts.append(f"brak: {omitted}{suffix}")
+    return " · ".join(parts)
+
+
 def visible(point, threshold: float = 0.45) -> bool:
     confidence = point.confidence
     return (
