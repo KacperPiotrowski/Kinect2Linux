@@ -67,6 +67,15 @@ class StudioCoreTests(unittest.TestCase):
         self.assertIn("best=15.0ms", s)
         self.assertIn("equiv_sequential_fps=28.6", s)
 
+    def test_studio_cpu_profile_scales_and_bounds_threads(self):
+        # This helper does not mutate the global environment. Studio uses
+        # os.environ.setdefault, preserving explicit ORT thread overrides.
+        self.assertEqual(studio.studio_cpu_thread_default(None), "1")
+        self.assertEqual(studio.studio_cpu_thread_default(1), "1")
+        self.assertEqual(studio.studio_cpu_thread_default(2), "2")
+        self.assertEqual(studio.studio_cpu_thread_default(12), "4")
+        self.assertEqual(studio.studio_cpu_thread_default(24), "4")
+
     def test_presence_exact_names_not_easy_effects_or_monitor(self):
         listing = (
             "1\teasyeffects_source\tPipeWire\tfloat32le 2ch 48000Hz\tRUNNING\n"
