@@ -36,7 +36,9 @@ from kinect2_linux import BrokerClient  # noqa: E402
 from kinect2_linux.frame_client import (  # noqa: E402
     FrameClient, FrameTimeoutError,
 )
-from kinect2_studio_core import audio_presence, broker_summary  # noqa: E402
+from kinect2_studio_core import (  # noqa: E402
+    audio_presence, broker_summary, studio_cpu_thread_default,
+)
 from kinect2_studio_pose import skeleton_geometry  # noqa: E402
 from kinect2_linux.tracking import TrackingSession, TrackingUnavailable  # noqa: E402
 
@@ -709,7 +711,7 @@ def main() -> int:
     # 4-thread profile (never modify global system or SDK defaults).
     # Preserve explicit environment overrides for benchmarking and
     # compatibility with lower-powered machines.
-    studio_threads = str(min(4, max(1, os.cpu_count() or 1)))
+    studio_threads = studio_cpu_thread_default(os.cpu_count())
     os.environ.setdefault("KINECT2_BODY_ORT_THREADS", studio_threads)
     print(f"[kinect2-studio] body CPU threads="
           f"{os.environ['KINECT2_BODY_ORT_THREADS']} "
