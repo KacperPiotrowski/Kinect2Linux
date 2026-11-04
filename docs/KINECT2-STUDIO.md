@@ -40,12 +40,16 @@ systemctl --user is-active kinect2-broker.service
 
 W menu obok Basic/Advanced znajduje się **Szkielet 2D · CPU**, domyślnie
 wyłączony. Można go zaznaczyć **także podczas działającego podglądu**. Studio
-bezpiecznie odtwarza wtedy wyłącznie subskrypcję RGB, pozostawiając
-IR/Depth i innych klientów brokera bez zmian. Wtedy wątek RGB
-przekazuje własną klatkę obrazu do istniejącego TrackingSession("body",
-mode="basic") i nakłada zielony szkielet 17 punktów COCO na **dokładnie
-tę samą** klatkę RGB. IR i Depth pozostają bez zmian. Start/Stop nadal
-dotyczą wyłącznie naszych trzech subskrypcji brokera.
+włącza/wyłącza analizę bez restartowania żadnej subskrypcji ani
+brokera. Wątek RGB oddaje **maksymalnie pięć kopii obrazu na sekundę**
+do osobnego wątku TrackingSession("body", mode="basic").
+ONNX nie blokuje już odbioru nowych klatek RGB. Wynik (17 punktów COCO)
+rysowany jest na **najnowszym** podglądzie RGB tylko jeśli estymacja ma
+mniej niż 400 ms. Ponieważ pozycja pochodzi z wcześniejszej klatki,
+przy szybkich ruchach szkielet może nieco odstawać od osoby.
+To **asynchroniczna estymacja 2D, a nie dokładne czasowo spasowanie**
+obrazu RGB ani rejestracja z Depth. IR i Depth pozostają niezależne.
+Start/Stop nadal dotyczą tylko naszych subskrypcji brokera.
 
 Model potrzebuje **dwóch lokalnych plików ONNX** w katalogu models.
 Żadne wagi nie są dołączone do Git ani pobierane przy uruchamianiu aplikacji.
@@ -63,10 +67,11 @@ Szczegóły źródeł modeli, wymagań i licencji: [BODY-BASIC-CPU.md](BODY-BASI
 Nie wykonuj pobierania, jeśli modele już leżą w models. Brak bibliotek/wag
 nie wyłącza RGB: Studio wyświetla powód niedostępności śledzenia i
 pokazuje sam obraz. Modele są ładowane dopiero przy pierwszej klatce
-RGB po zaznaczeniu opcji. Podczas pierwszego startu może być krótka pauza
-w odświeżaniu RGB, ale interfejs Qt działa w osobnym wątku. Po
-przełączeniu śledzenia poczekaj na informację o stanie Body Tracking;
-nie ma potrzeby ręcznego restartowania całego podglądu.
+RGB po zaznaczeniu opcji. Podczas pierwszego załadowania ONNX obraz RGB, IR i Depth powinien
+nadal odświeżać się niezależnie od analizy. Sam szkielet może pojawić
+się później. Nie ma potrzeby ręcznego restartowania podglądu. Wyłączenie
+opcji zwalnia sesję modelu po zakończeniu aktualnie wykonywanej
+inferencji; brak modeli nie blokuje podglądu RGB.
 
 **To jest 2D, a nie Kinect SDK 2.0 Body Tracking 3D:** punkty
 pochodzą wyłącznie z obrazu RGB. Nie są metrycznie rejestrowane z Depth,
@@ -100,8 +105,8 @@ kliknięciu Start. Wynikało to przede wszystkim z limitu 10 FPS w GUI
 oraz blokowania checkboxa, a nie z wykazanej awarii sensora.
 
 Po tej poprawce:
-- checkbox jest dostępny podczas podglądu i restartuje tylko klienta RGB,
-  nie całe Studio i nie proces brokera;
+- checkbox jest dostępny podczas podglądu i włącza osobny wątek AI,
+  bez restartu RGB, IR, Depth ani brokera;
 - bufor Qt przechowuje tylko najnowszy obraz, zamiast kolejki sygnałów;
 - ograniczenie prezentacji podniesiono do maksymalnie 30 FPS i uproszczono
   skalowanie obrazu. Dla IR używana jest mniejsza próbka do wyznaczania
@@ -111,6 +116,30 @@ Po tej poprawce:
 **Wymaga ponownego testu sprzętowego**: rzeczywisty FPS podczas ruchu,
 wrażenie opóźnienia, włączenie/wyłączenie modelu w locie, zamknięcie
 okna przy ładowaniu ONNX oraz obciążenie CPU. To nie jest gwarancja 30 FPS.
+
+### Drugi etap optymalizacji: 2D bez blokowania podglądu
+
+Pierwszy test po podniesieniu limitu GUI: RGB bez modelu ~15.2 FPS,
+po włączeniu szkieletu ~7.6 FPS, a wiek prezentowanej klatki wzrósł
+z około 13 ms do 86–102 ms (trzy krótkie nagrania ekranu).
+W kodzie źródłem ryzyka był `tracker.process()` uruchamiany
+synchronicznie w **tym samym wątku**, który pobiera i pokazuje RGB.
+
+Teraz:
+- kamera RGB działa niezależnie od inferencji i pozostaje źródłem
+  15+ FPS jeżeli pozwoli na to broker i CPU;
+- model dostaje co najwyżej pięć klatek RGB na sekundę i ma
+  **jednoelementowy bufor** — stare klatki wypadają, a wątek podglądu
+  nie czeka na analizę;
+- rysowanie szkieletu na nowszej klatce jest **przybliżeniem czasowym**.
+  Dla wymagającego motion capture należy później rozdzielić prezentację
+  modeli i/lub użyć bufora klatek oznaczonych tym samym numerem sekwencji;
+- inferencja ONNX nadal zużywa zasoby CPU i pamięć. Nawet osobny wątek
+  nie gwarantuje zachowania identycznego FPS dla wszystkich urządzeń.
+
+Wymaga ponownego testu na fizycznym Kinect v2: FPS RGB/IR/Depth przy
+wyłączonym i włączonym szkielecie, CPU, czytelność linii podczas ruchu,
+Start/Stop i zamknięcie okna podczas inicjalizacji modeli.
 
 ## Ograniczenia
 
