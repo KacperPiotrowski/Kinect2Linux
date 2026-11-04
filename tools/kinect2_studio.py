@@ -7,6 +7,7 @@ systemd/PipeWire, records a frame or uploads anything.
 from __future__ import annotations
 
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -19,10 +20,10 @@ sys.path.insert(0, str(ROOT / "sdk" / "python"))
 try:
     import numpy as np
     from PySide6.QtCore import Qt, QPointF, QThread, QTimer, Signal
-    from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
+    from PySide6.QtGui import QColor, QImage, QKeySequence, QPainter, QPen, QPixmap
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
-        QMainWindow, QPushButton, QSplitter, QVBoxLayout, QWidget,
+        QMainWindow, QPushButton, QShortcut, QSplitter, QVBoxLayout, QWidget,
     )
 except ImportError as exc:
     raise SystemExit(
@@ -358,6 +359,8 @@ class StudioWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Kinect2 Studio — eksperymentalne GUI")
         self.resize(1350, 870)
+        self._quit_shortcut = QShortcut(QKeySequence("Ctrl+Q"), self)
+        self._quit_shortcut.activated.connect(self.close)
         self._workers: dict[str, StreamWorker] = {}
         self._stopping = False
         self._closing = False
@@ -647,6 +650,7 @@ class StudioWindow(QMainWindow):
             event.ignore()
             self.stop_preview()
             return
+        self._render_timer.stop()
         self._status.requestInterruption()
         if not self._status.wait(100):
             event.ignore()
@@ -663,6 +667,26 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("Kinect2 Studio")
     window = StudioWindow()
+
+    # Python's default SIGINT turns Ctrl+C into KeyboardInterrupt. Unhandled
+    # exceptions in slots can leave the Qt event loop in a broken state, and
+    # repeated Ctrl+C then Ctrl+Z leads to an unresponsive suspended GUI.
+    # Map terminal interrupts and SIGTERM to the very same asynchronous
+    # cleanup as the window X / Ctrl+Q. We never call sys.exit in a slot.
+    def shutdown_from_terminal(_signum, _frame):
+        if not window._closing:
+            window.close()
+
+    signal.signal(signal.SIGINT, shutdown_from_terminal)
+    signal.signal(signal.SIGTERM, shutdown_from_terminal)
+
+    # Qt runs a native event loop; this lightweight heartbeat makes pending
+    # Python signals reliably dispatch even when no frame has arrived.
+    heartbeat = QTimer(window)
+    heartbeat.setInterval(100)
+    heartbeat.timeout.connect(lambda: None)
+    heartbeat.start()
+
     window.show()
     return app.exec()
 
