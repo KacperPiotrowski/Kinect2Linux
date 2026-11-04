@@ -66,17 +66,21 @@ class StudioImageTests(unittest.TestCase):
         self.assertIsNone(worker.take_latest())
 
     def test_pose_worker_is_off_by_default_and_coalesces_frames(self):
+        from PySide6.QtGui import QImage
         from kinect2_studio import PoseWorker
         worker = PoseWorker()
         one = self.np.zeros((4, 4, 3), dtype=self.np.uint8)
         two = self.np.ones((4, 4, 3), dtype=self.np.uint8)
-        worker.offer(one, 100, 1)
+        source = QImage(4, 4, QImage.Format.Format_BGR888)
+        source.fill(0)
+        worker.offer(one, source, 100, 1)
         self.assertIsNone(worker._pending)  # Default OFF must not load models.
         worker.set_enabled(True)
-        worker.offer(one, 100, 1)
-        worker.offer(two, 200, 2)
-        self.assertEqual(worker._pending[1:], (200, 2))
+        worker.offer(one, source, 100, 1)
+        worker.offer(two, source.copy(), 200, 2)
+        self.assertEqual(worker._pending[2:], (200, 2))
         self.assertIs(worker._pending[0], two)
+        self.assertEqual(worker._pending[1].pixelColor(0, 0).red(), 0)
         worker.set_enabled(False)
         self.assertIsNone(worker._pending)
         self.assertFalse(worker.is_enabled())
