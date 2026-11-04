@@ -87,9 +87,8 @@ def frame_image(kind: str, array) -> QImage:
     ).copy()
 
 
-def overlay_body(image: QImage, result) -> QImage:
-    """Draw COCO-17 2D joints on this exact RGB snapshot, never on Depth."""
-    lines, joints = skeleton_geometry(result)
+def overlay_geometry(image: QImage, lines, joints) -> QImage:
+    """Draw an estimated 2D pose; source image timestamp may differ."""
     painter = QPainter(image)
     try:
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -110,14 +109,108 @@ def overlay_body(image: QImage, result) -> QImage:
     return image
 
 
+def overlay_body(image: QImage, result) -> QImage:
+    """Draw a result on its originating frame (also used by offline tests)."""
+    return overlay_geometry(image, *skeleton_geometry(result))
+
+
+class PoseWorker(QThread):
+    """Optional, bounded 5 Hz CPU inference. Never blocks RGB capture.
+
+    The single pending BGR snapshot is replaced by newer frames while RTMPose
+    computes; the UI separately uses its latest RGB image. A pose from a
+    previous frame is an approximate overlay, NOT registered/synchronized 3D.
+    """
+    result_ready = Signal(object, float)
+    state = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self._condition = threading.Condition()
+        self._pending = None
+        self._enabled = False
+
+    def set_enabled(self, enabled: bool) -> None:
+        with self._condition:
+            self._enabled = bool(enabled)
+            if not enabled:
+                self._pending = None
+            self._condition.notify_all()
+
+    def is_enabled(self) -> bool:
+        with self._condition:
+            return self._enabled
+
+    def offer(self, pixels, host_time_us: int, sequence: int) -> None:
+        with self._condition:
+            if not self._enabled or self.isInterruptionRequested():
+                return
+            # Caller provides a privately owned BGR array.
+            self._pending = (pixels, host_time_us, sequence)
+            self._condition.notify_all()
+
+    def stop(self) -> None:
+        self.requestInterruption()
+        with self._condition:
+            self._pending = None
+            self._condition.notify_all()
+
+    def run(self):
+        tracker = None
+        try:
+            while not self.isInterruptionRequested():
+                with self._condition:
+                    if self._enabled and self._pending is None:
+                        self._condition.wait(timeout=0.2)
+                    elif not self._enabled:
+                        self._condition.wait(timeout=0.2)
+                    enabled = self._enabled
+                    pending = self._pending
+                    self._pending = None
+                if not enabled:
+                    if tracker is not None:
+                        tracker.close()
+                        tracker = None
+                    continue
+                if pending is None:
+                    continue
+                if tracker is None:
+                    tracker = TrackingSession("body", mode="basic")
+                    self.state.emit("Ładowanie lokalnych modeli RTMPose-s…")
+                pixels, published_us, seq = pending
+                start = time.perf_counter()
+                try:
+                    result = tracker.process(pixels)
+                except (TrackingUnavailable, ImportError, OSError,
+                        RuntimeError, ValueError, TypeError) as exc:
+                    self.state.emit("Śledzenie niedostępne: " + str(exc)[:140])
+                    with self._condition:
+                        self._enabled = False
+                        self._pending = None
+                    if tracker is not None:
+                        tracker.close()
+                        tracker = None
+                    continue
+                elapsed = (time.perf_counter() - start) * 1000.0
+                with self._condition:
+                    still_enabled = self._enabled
+                if still_enabled and not self.isInterruptionRequested():
+                    lines, joints = skeleton_geometry(result)
+                    self.result_ready.emit(
+                        (lines, joints, published_us, seq, len(result.subjects)),
+                        elapsed,
+                    )
+        finally:
+            if tracker is not None:
+                tracker.close()
+
+
 class StreamWorker(QThread):
     state = Signal(str, str)
-    pose_status = Signal(str)
-
-    def __init__(self, kind: str, *, body_tracking: bool = False):
+    def __init__(self, kind: str, *, pose_worker=None):
         super().__init__()
         self.kind = kind
-        self.body_tracking = bool(body_tracking and kind == "rgb")
+        self.pose_worker = pose_worker if kind == "rgb" else None
         self._latest_lock = threading.Lock()
         self._latest = None
 
@@ -133,23 +226,15 @@ class StreamWorker(QThread):
             self._latest = (image, host_time_us, seq)
 
     def run(self):
-        # A separate TrackingSession is created ONLY on explicit user opt-in.
-        # It owns no USB. Its models initialize lazily on the first RGB frame.
-        tracker = TrackingSession("body", mode="basic") if self.body_tracking else None
-        if tracker is not None:
-            self.pose_status.emit("Ładowanie RTMPose-s po pierwszej klatce…")
-        try:
-            self._run_capture(tracker)
-        finally:
-            if tracker is not None:
-                tracker.close()
+        self._run_capture()
 
-    def _run_capture(self, tracker):
+    def _run_capture(self):
         while not self.isInterruptionRequested():
             try:
                 with FrameClient(self.kind, timeout=0.8) as camera:
                     self.state.emit(self.kind, "Połączono")
                     last_processed = 0.0
+                    last_pose_offer = 0.0
                     while not self.isInterruptionRequested():
                         try:
                             frame, _skipped = camera.receive_latest(max_pending=16)
@@ -165,28 +250,15 @@ class StreamWorker(QThread):
                             seq = frame.sequence
                             host_time_us = frame.host_time_us
                         image = frame_image(self.kind, pixels)
-                        if tracker is not None:
-                            try:
-                                # Match the preview 960x540 RGB geometry:
-                                # BGRX -> BGR, no changes to broker frames.
-                                bgr = np.ascontiguousarray(pixels[::2, ::2, :3])
-                                start_infer = time.perf_counter()
-                                result = tracker.process(bgr)
-                                elapsed = (time.perf_counter() - start_infer) * 1000
-                                overlay_body(image, result)
-                                self.pose_status.emit(
-                                    f"{len(result.subjects)} osób · {elapsed:.0f} ms "
-                                    "(CPU, 17 punktów 2D)"
-                                )
-                            except (TrackingUnavailable, ImportError, OSError,
-                                    RuntimeError, ValueError, TypeError) as exc:
-                                # Fail open for RGB: a missing ONNX file must not
-                                # break an otherwise healthy camera preview.
-                                self.pose_status.emit(
-                                    "Śledzenie niedostępne: " + str(exc)[:140]
-                                )
-                                tracker.close()
-                                tracker = None
+                        # The main preview NEVER waits for ONNX inference.
+                        # Transfer at most 5 RGB frames/s to the independent
+                        # pose worker, replacing any unprocessed snapshot.
+                        pose = self.pose_worker
+                        if (pose is not None and pose.is_enabled() and
+                                moment - last_pose_offer >= 0.20):
+                            bgr = np.ascontiguousarray(pixels[::2, ::2, :3])
+                            pose.offer(bgr, host_time_us, seq)
+                            last_pose_offer = moment
                         last_processed = time.monotonic()
                         # Bounded single-slot mailbox: the Qt event queue
                         # never accumulates stale high-resolution frames.
@@ -289,7 +361,8 @@ class StudioWindow(QMainWindow):
         self._workers: dict[str, StreamWorker] = {}
         self._stopping = False
         self._closing = False
-        self._restarting_rgb = False
+        self._pose_worker = None
+        self._pose_geometry = None
         self._present_counts = {}
 
         self.setStyleSheet("""
@@ -444,11 +517,9 @@ class StudioWindow(QMainWindow):
         tile = self.tiles[kind]
         tile.show_state("Łączenie z brokerem…")
         worker = StreamWorker(
-            kind, body_tracking=(kind == "rgb" and self.pose_check.isChecked())
+            kind, pose_worker=self._pose_worker if kind == "rgb" else None
         )
         worker.state.connect(self._show_state)
-        if kind == "rgb":
-            worker.pose_status.connect(self.pose_result.setText)
         self._workers[kind] = worker
         self._present_counts[kind] = [time.monotonic(), 0, 0.0]
         worker.finished.connect(lambda key=kind: self._worker_finished(key))
@@ -462,20 +533,43 @@ class StudioWindow(QMainWindow):
         self.pose_result.setText(
             "Oczekiwanie na RGB" if self.pose_check.isChecked() else "Wyłączony"
         )
+        self._pose_geometry = None
+        self._pose_worker = PoseWorker()
+        self._pose_worker.state.connect(self._pose_state)
+        self._pose_worker.result_ready.connect(self._pose_result_ready)
+        self._pose_worker.finished.connect(self._pose_finished)
+        self._pose_worker.set_enabled(self.pose_check.isChecked())
+        self._pose_worker.start()
         for kind in self.tiles:
             self._spawn_stream(kind)
 
     def _pose_toggled(self, checked: bool):
-        if self._stopping or self._closing or not self._workers:
+        if self._stopping or self._closing:
             return
-        self.pose_result.setText("Przełączanie śledzenia 2D…")
-        # Restart ONLY the RGB subscriber; IR/Depth and all other
-        # broker clients continue uninterrupted. If ONNX is still loading,
-        # the current worker finishes asynchronously without freezing Qt.
-        self._restarting_rgb = True
-        worker = self._workers.get("rgb")
-        if worker is not None:
-            worker.requestInterruption()
+        self._pose_geometry = None
+        if self._pose_worker is not None:
+            self._pose_worker.set_enabled(checked)
+        self.pose_result.setText(
+            "Oczekiwanie na analizę RGB…" if checked else "Wyłączony"
+        )
+
+    def _pose_state(self, message: str):
+        if self.pose_check.isChecked() and not self._stopping:
+            self.pose_result.setText(message)
+
+    def _pose_result_ready(self, result, elapsed_ms: float):
+        if self.pose_check.isChecked() and not self._stopping:
+            self._pose_geometry = result
+            self.pose_result.setText(
+                f"{result[4]} osób · {elapsed_ms:.0f} ms / analiza · "
+                "2D z wcześniejszej klatki RGB"
+            )
+
+    def _pose_finished(self):
+        if self._pose_worker is not None:
+            self._pose_worker.wait()
+            self._pose_worker = None
+        self._complete_stop()
 
     def _render_latest(self):
         if self._stopping or self._closing:
@@ -485,6 +579,14 @@ class StudioWindow(QMainWindow):
             if latest is None:
                 continue
             image, host_time_us, seq = latest
+            if kind == "rgb" and self.pose_check.isChecked():
+                geometry = self._pose_geometry
+                if geometry is not None:
+                    lines, joints, pose_published_us, _pose_seq, _count = geometry
+                    pose_age_ms = (time.monotonic_ns() // 1000 -
+                                   pose_published_us) / 1000.0
+                    if 0.0 <= pose_age_ms <= 400.0:
+                        image = overlay_geometry(image, lines, joints)
             now = time.monotonic()
             stats = self._present_counts.get(kind)
             if stats is None:
@@ -503,35 +605,31 @@ class StudioWindow(QMainWindow):
             self.tiles[kind].show_state(message)
 
     def stop_preview(self):
-        if not self._workers or self._stopping:
+        if (not self._workers and self._pose_worker is None) or self._stopping:
             return
-        # Do NOT destroy a QThread still initializing ONNX models. A 2.5 s
-        # blocking wait was enough for bare RGB but not for lazy AI startup.
         self._stopping = True
-        self._restarting_rgb = False
         self.stop_btn.setEnabled(False)
         self.start_btn.setEnabled(False)
         self.pose_check.setEnabled(False)
+        self._pose_geometry = None
         self.pose_result.setText("Zatrzymywanie…")
         for worker in self._workers.values():
             worker.requestInterruption()
+        if self._pose_worker is not None:
+            self._pose_worker.stop()
+        self._complete_stop()
 
     def _worker_finished(self, kind: str):
         worker = self._workers.get(kind)
         if worker is None:
             return
-        # The finished signal is emitted right before full thread exit.
-        # Wait only for this already-completed worker to avoid a spin loop.
         worker.wait()
         del self._workers[kind]
         self._present_counts.pop(kind, None)
-        if (kind == "rgb" and self._restarting_rgb and not
-                self._stopping and not self._closing):
-            self._restarting_rgb = False
-            self.tiles["rgb"].reset()
-            self._spawn_stream("rgb")
-            return
-        if self._workers:
+        self._complete_stop()
+
+    def _complete_stop(self):
+        if not self._stopping or self._workers or self._pose_worker is not None:
             return
         self._stopping = False
         for tile in self.tiles.values():
@@ -545,7 +643,7 @@ class StudioWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._closing = True
-        if self._workers:
+        if self._workers or self._pose_worker is not None:
             event.ignore()
             self.stop_preview()
             return
