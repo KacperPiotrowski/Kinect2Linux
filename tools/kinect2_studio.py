@@ -458,7 +458,6 @@ class StudioWindow(QMainWindow):
             "Włącz Szkielet 2D · CPU, aby zobaczyć analizę"
         )
         grid.addWidget(self.tiles["rgb"], 0, 0, 1, 2)
-        grid.addWidget(self.pose_tile, 0, 1, 1, 1)
         self.pose_tile.hide()
         grid.addWidget(self.tiles["ir"], 1, 0)
         grid.addWidget(self.tiles["depth"], 1, 1)
@@ -516,7 +515,6 @@ class StudioWindow(QMainWindow):
         foot.setObjectName("small")
         outer.addWidget(foot)
         self._set_mode()
-        self._set_pose_tile_visible(False)
         self._status = StatusWorker()
         self._status.report.connect(self._update_status)
         self._status.start()
@@ -590,8 +588,10 @@ class StudioWindow(QMainWindow):
         grid.removeWidget(rgb)
         if show:
             grid.addWidget(rgb, 0, 0, 1, 1)
+            grid.addWidget(self.pose_tile, 0, 1, 1, 1)
             self.pose_tile.show()
         else:
+            grid.removeWidget(self.pose_tile)
             self.pose_tile.hide()
             grid.addWidget(rgb, 0, 0, 1, 2)
 
