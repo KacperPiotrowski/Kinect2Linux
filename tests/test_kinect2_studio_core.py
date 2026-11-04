@@ -47,11 +47,25 @@ class StudioCoreTests(unittest.TestCase):
             if isinstance(node, ast.Name)
         }
         self.assertNotIn("last_processed", identifiers)
-        self.assertIn("last_pose_offer", identifiers)
+        # No additional 5Hz cap: inference worker processes newest BGR
+        # snapshots as quickly as ONNX can compute on the machine.
+        self.assertNotIn("last_pose_offer", identifiers)
         self.assertIn("receive_latest", {
             node.attr for node in ast.walk(receiver)
             if isinstance(node, ast.Attribute)
         })
+
+    def test_body_benchmark_describes_real_median_and_tail(self):
+        import importlib.util
+        path = ROOT / "tools/kinect2_body_bench.py"
+        spec = importlib.util.spec_from_file_location("kinect2_body_bench", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        s = module.describe([15.0, 25.0, 35.0, 45.0, 55.0])
+        self.assertIn("median=35.0ms", s)
+        self.assertIn("p95=55.0ms", s)
+        self.assertIn("best=15.0ms", s)
+        self.assertIn("equiv_sequential_fps=28.6", s)
 
     def test_presence_exact_names_not_easy_effects_or_monitor(self):
         listing = (
