@@ -50,6 +50,21 @@ class StudioImageTests(unittest.TestCase):
         # A valid point is drawn at the center of the 100x100 Qt preview.
         self.assertNotEqual(image.pixelColor(49, 49).name(), "#000000")
 
+    def test_latest_only_mailbox_drops_old_unrendered_frames(self):
+        from PySide6.QtGui import QImage
+        from kinect2_studio import StreamWorker
+        worker = StreamWorker("rgb")
+        first = QImage(2, 2, QImage.Format.Format_RGB888)
+        newest = QImage(2, 2, QImage.Format.Format_RGB888)
+        first.fill(0)
+        newest.fill(0xffffff)
+        worker._publish(first, 100, 1)
+        worker._publish(newest, 200, 2)
+        item = worker.take_latest()
+        self.assertEqual((item[1], item[2]), (200, 2))
+        self.assertEqual(item[0].pixelColor(0, 0).red(), 255)
+        self.assertIsNone(worker.take_latest())
+
     def test_ir_invalid_readings_do_not_crash(self):
         np = self.np
         image = self.convert("ir", np.array(
