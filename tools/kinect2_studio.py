@@ -673,9 +673,17 @@ def main() -> int:
     # repeated Ctrl+C then Ctrl+Z leads to an unresponsive suspended GUI.
     # Map terminal interrupts and SIGTERM to the very same asynchronous
     # cleanup as the window X / Ctrl+Q. We never call sys.exit in a slot.
+    shutdown_queued = False
+
     def shutdown_from_terminal(_signum, _frame):
-        if not window._closing:
-            window.close()
+        nonlocal shutdown_queued
+        if shutdown_queued or window._closing:
+            return
+        shutdown_queued = True
+        # A POSIX signal may arrive in the middle of _render_latest().
+        # Queue cleanup for the next Qt event-loop turn instead of closing
+        # widgets re-entrantly from an interrupted Python callback.
+        QTimer.singleShot(0, window.close)
 
     signal.signal(signal.SIGINT, shutdown_from_terminal)
     signal.signal(signal.SIGTERM, shutdown_from_terminal)
