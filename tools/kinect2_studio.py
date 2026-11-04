@@ -702,6 +702,19 @@ def main() -> int:
     if os.geteuid() == 0:
         print("Run Kinect2 Studio as your regular desktop user, not root.", file=sys.stderr)
         return 2
+
+    # In the real Kinect v2 CPU benchmark, 1 ORT thread took 66.7ms,
+    # 4 threads took 26.3ms and 6 threads took 24.4ms per person frame
+    # on Ryzen 9 7900. Default ONLY this GUI process to a cautious
+    # 4-thread profile (never modify global system or SDK defaults).
+    # Preserve explicit environment overrides for benchmarking and
+    # compatibility with lower-powered machines.
+    studio_threads = str(min(4, max(1, os.cpu_count() or 1)))
+    os.environ.setdefault("KINECT2_BODY_ORT_THREADS", studio_threads)
+    print(f"[kinect2-studio] body CPU threads="
+          f"{os.environ['KINECT2_BODY_ORT_THREADS']} "
+          "(override with KINECT2_BODY_ORT_THREADS)", flush=True)
+
     app = QApplication(sys.argv)
     app.setApplicationName("Kinect2 Studio")
     window = StudioWindow()
