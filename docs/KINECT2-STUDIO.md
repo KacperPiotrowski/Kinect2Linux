@@ -39,7 +39,9 @@ systemctl --user is-active kinect2-broker.service
 ## Opcjonalny Motion Capture 2D (RTMPose-s, CPU)
 
 W menu obok Basic/Advanced znajduje się **Szkielet 2D · CPU**, domyślnie
-wyłączony. Włącz go **przed** kliknięciem Start podglądu. Wtedy wątek RGB
+wyłączony. Można go zaznaczyć **także podczas działającego podglądu**. Studio
+bezpiecznie odtwarza wtedy wyłącznie subskrypcję RGB, pozostawiając
+IR/Depth i innych klientów brokera bez zmian. Wtedy wątek RGB
 przekazuje własną klatkę obrazu do istniejącego TrackingSession("body",
 mode="basic") i nakłada zielony szkielet 17 punktów COCO na **dokładnie
 tę samą** klatkę RGB. IR i Depth pozostają bez zmian. Start/Stop nadal
@@ -62,8 +64,9 @@ Nie wykonuj pobierania, jeśli modele już leżą w models. Brak bibliotek/wag
 nie wyłącza RGB: Studio wyświetla powód niedostępności śledzenia i
 pokazuje sam obraz. Modele są ładowane dopiero przy pierwszej klatce
 RGB po zaznaczeniu opcji. Podczas pierwszego startu może być krótka pauza
-w odświeżaniu RGB, ale interfejs Qt działa w osobnym wątku. Aby przełączyć
-śledzenie, kliknij Stop, zmień opcję i ponownie Start.
+w odświeżaniu RGB, ale interfejs Qt działa w osobnym wątku. Po
+przełączeniu śledzenia poczekaj na informację o stanie Body Tracking;
+nie ma potrzeby ręcznego restartowania całego podglądu.
 
 **To jest 2D, a nie Kinect SDK 2.0 Body Tracking 3D:** punkty
 pochodzą wyłącznie z obrazu RGB. Nie są metrycznie rejestrowane z Depth,
@@ -89,6 +92,26 @@ python3 -m unittest discover -s tests -p 'test_kinect2_studio_pose.py' -v
 - Przycisk Stop zamyka tylko nasze subskrypcje. Pozostali klienci i
   usługi pozostają bez zmian.
 
+## Świeższy obraz i kontrolki po starcie
+
+Zgłoszenie sprzętowe (listopad 2026): przed zmianą użytkownik widział
+około 8 FPS przy mocnym oświetleniu i nie mógł zaznaczyć śledzenia po
+kliknięciu Start. Wynikało to przede wszystkim z limitu 10 FPS w GUI
+oraz blokowania checkboxa, a nie z wykazanej awarii sensora.
+
+Po tej poprawce:
+- checkbox jest dostępny podczas podglądu i restartuje tylko klienta RGB,
+  nie całe Studio i nie proces brokera;
+- bufor Qt przechowuje tylko najnowszy obraz, zamiast kolejki sygnałów;
+- ograniczenie prezentacji podniesiono do maksymalnie 30 FPS i uproszczono
+  skalowanie obrazu. Dla IR używana jest mniejsza próbka do wyznaczania
+  percentyli jasności, przy zachowaniu pełnego podglądu;
+- metryki FPS mówią o wyświetlanych klatkach, nie o sprzęcie.
+
+**Wymaga ponownego testu sprzętowego**: rzeczywisty FPS podczas ruchu,
+wrażenie opóźnienia, włączenie/wyłączenie modelu w locie, zamknięcie
+okna przy ładowaniu ONNX oraz obciążenie CPU. To nie jest gwarancja 30 FPS.
+
 ## Ograniczenia
 
 - IR jest skalowane dla podglądu; nie modyfikujemy natywnych klatek.
@@ -98,9 +121,14 @@ python3 -m unittest discover -s tests -p 'test_kinect2_studio_pose.py' -v
   RTMPose-s, ale **nie ma śledzenia 3D**, nagrywania sesji, eksportu danych,
   podglądu czterech mikrofonów ani automatycznego instalatora.
 - Każdy strumień ma własny wątek z ograniczonym timeoutem i odbiera
-  najnowsze klatki zamiast zapychać GUI kolejką. Podgląd prezentuje najwyżej
-  10 klatek na sekundę z każdego strumienia: **FPS w GUI nie jest FPS
-  sprzętowego sensora**. Nie zakłada synchronizacji trzech strumieni.
+  najnowsze klatki zamiast zapychać GUI kolejką. Jednoelementowy bufor
+  najnowszej klatki zapobiega gromadzeniu starych obrazów w kolejce Qt.
+  Przygotowanie obrazu jest ograniczone do **maksymalnie 30 FPS** na panel,
+  a GUI odświeża się zegarem 33 ms; na słabszym sprzęcie FPS może być
+  niższy. **FPS w GUI mierzy faktycznie wyświetlone klatki, nie natywny
+  FPS sensora**. Opóźnienie w metrykach liczy się od publikacji klatki
+  przez brokera do prezentacji w Qt i nie obejmuje ekspozycji/sensora.
+  Nie zakłada synchronizacji trzech strumieni.
 - Testy GUI na prawdziwym Kinect v2 + KDE, Wayland/X11 i wydajność
   RGB+IR+Depth są **do wykonania**. CI bez wyświetlacza uruchamia
   tylko testy komponentów niezależnych od Qt.
