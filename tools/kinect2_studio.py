@@ -415,7 +415,7 @@ class StudioWindow(QMainWindow):
         self.pose_check = QCheckBox("Szkielet 2D · CPU")
         self.pose_check.setToolTip(
             "Opcjonalny RTMPose-s (17 punktów COCO); wymaga lokalnych modeli. "
-            "Włącz przed rozpoczęciem podglądu. Bez 3D i bez pobierania modeli."
+            "Możesz przełączać w trakcie podglądu. Bez 3D i bez pobierania modeli."
         )
         top.addWidget(self.pose_check)
         self.pose_check.toggled.connect(self._pose_toggled)
