@@ -58,6 +58,34 @@ class PoseTests(unittest.TestCase):
         self.assertEqual(lines, [])
         self.assertEqual(joints, [])
 
+    def test_quality_separates_score_from_detected_joint_coverage(self):
+        points = [Point(.5, .5, .9) for _ in range(17)]
+        points[9] = Point(.2, .3, .2)  # left wrist below cutoff
+        points[15] = Point(float("nan"), .3, .99)  # invalid left ankle
+        reports = pose.pose_quality(Result((Subject(points),)))
+        self.assertEqual(len(reports), 1)
+        self.assertEqual(reports[0]["visible"], 15)
+        self.assertEqual(reports[0]["total"], 17)
+        self.assertAlmostEqual(reports[0]["mean_model_score"], .9)
+        self.assertEqual(reports[0]["missing"], ("nadgarstek L", "kostka L"))
+        msg = pose.pose_quality_text(reports)
+        self.assertIn("15/17", msg)
+        self.assertIn("nie dokładność", msg)
+        self.assertIn("kostka L", msg)
+
+    def test_quality_absent_or_multiple_people(self):
+        self.assertEqual(pose.pose_quality(Result(())), ())
+        self.assertIn("Nie wykryto sylwetki",
+                      pose.pose_quality_text(()))
+        invisible = Subject([Point(confidence=.0) for _ in range(17)])
+        visible = Subject([Point(confidence=.9) for _ in range(17)])
+        reports = pose.pose_quality(Result((invisible, visible)))
+        self.assertEqual(tuple(x["visible"] for x in reports), (0, 17))
+        self.assertIsNone(reports[0]["mean_model_score"])
+        msg = pose.pose_quality_text(reports)
+        self.assertIn("Osoba 1: 0/17", msg)
+        self.assertIn("Osoba 2: 17/17", msg)
+
     def test_tracking_off_does_not_require_models_or_qt(self):
         self.assertFalse(pose.visible(Point(confidence=None)))
         self.assertFalse(pose.visible(Point(x=float("inf"))))
