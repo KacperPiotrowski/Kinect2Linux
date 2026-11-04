@@ -168,6 +168,46 @@ Test bez sprzętu:
 python3 -m unittest discover -s tests -p 'test_kinect2_studio_core.py' -v
 ~~~
 
+## Zamykanie aplikacji i obsługa sygnałów terminala
+
+Po zgłoszeniu z 2026-11-04 dodaliśmy kontrolowaną obsługę SIGINT
+(Ctrl+C) i SIGTERM oraz skrót **Ctrl+Q**. Nieobsłużony wcześniej
+KeyboardInterrupt mógł przerwać wywołanie `_render_latest` w
+głównym wątku Qt, zostawiając aplikację w nieczytelnym stanie.
+Sygnał zamknięcia jest teraz przekazywany na **następny obrót pętli
+Qt**, a wątki podglądu i ONNX mają zakończyć się bez brutalnego
+`QThread.terminate()`. Do weryfikacji na fizycznym sprzęcie.
+
+**Ctrl+Z nie jest poleceniem kończącym!** Zatrzymuje cały proces
+(SIGTSTP), przez co okno przestaje obsługiwać zdarzenia i KDE może
+zgłosić „Nie odpowiada”. W terminalu ze stanem `[1]+ Zatrzymano`
+wykonaj `jobs -l`, następnie `kill -CONT %1` i `kill -TERM %1`
+(dla zadania numer 1). Gdy aplikacja jest responsywna, zalecamy
+przycisk Stop, Ctrl+Q lub zamknięcie X. Nie kończ brutalnie procesu
+bez potrzeby — inne klienty brokera powinny pozostać nietknięte.
+
+W razie kolejnej awarii przed próbą Ctrl+Z zapisz informacje o tym,
+czy Kinect2 Studio reaguje na kliknięcia (Basic/Advanced, Stop) i czy
+zawieszenie nastąpiło **przed** czy **po** użyciu Ctrl+C. To rozróżnia
+przeciążenie GUI od celowego zatrzymania procesu przez powłokę.
+
+## Vulkan i OpenGL — możliwy następny etap, NIE część obecnego GUI
+
+Obecny interfejs to PySide6 **QWidget + QLabel/QPixmap**; nie używa
+Qt Quick Scene Graph. Samo ustawienie `QSG_RHI_BACKEND=vulkan` nie
+przyspieszy tej ścieżki. Możliwe kierunki eksperymentów:
+
+- migracja wyłącznie powierzchni podglądu do Qt Quick (RHI): backend
+  Vulkan, OpenGL oraz fallback zgodnie z dostępnymi sterownikami GPU;
+- najpierw profile wydajności: transfer klatek, skalowanie tekstur,
+  rysowanie szkieletu, graf CPU i render FPS;
+- później Depth 3D, po skalibrowaniu geometrii i sprawdzeniu modelu
+  kamery. GPU przyspiesza wyświetlanie, ale nie obiecuje automatycznie
+  większego FPS CPU RTMPose/YOLOX.
+- eksperymentalny backend musi być opcjonalny i mieć działający
+  fallback; UI, diagnostyka mikrofonów i pojedynczy właściciel USB
+  pozostają bez zmian.
+
 ## Prywatność i wycofanie
 
 Aplikacja **nie zapisuje ani nie wysyła** żadnych obrazów i audio.
