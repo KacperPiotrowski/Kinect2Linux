@@ -1,6 +1,7 @@
 """Offline Kinect2 Studio tests: no Qt, sensor or microphone required."""
 from __future__ import annotations
 
+import ast
 import importlib.util
 from pathlib import Path
 import unittest
@@ -13,6 +14,19 @@ spec.loader.exec_module(studio)
 
 
 class StudioCoreTests(unittest.TestCase):
+    def test_qshortcut_imports_from_qtgui_not_qtwidgets(self):
+        # The CI image may not ship PySide6. This static check guards
+        # the exact Qt import regression that stopped Studio launching.
+        tree = ast.parse((ROOT / "tools/kinect2_studio.py").read_text())
+        locations = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module in (
+                    "PySide6.QtGui", "PySide6.QtWidgets"):
+                for alias in node.names:
+                    locations[alias.name] = node.module
+        self.assertEqual(locations.get("QShortcut"), "PySide6.QtGui")
+        self.assertEqual(locations.get("QKeySequence"), "PySide6.QtGui")
+
     def test_presence_exact_names_not_easy_effects_or_monitor(self):
         listing = (
             "1\teasyeffects_source\tPipeWire\tfloat32le 2ch 48000Hz\tRUNNING\n"
