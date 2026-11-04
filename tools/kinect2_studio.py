@@ -237,7 +237,9 @@ class StreamWorker(QThread):
             try:
                 with FrameClient(self.kind, timeout=0.8) as camera:
                     self.state.emit(self.kind, "Połączono")
-                    last_processed = 0.0
+                    # One upstream 30Hz cadence is enough. Do not add
+                    # another 33ms gate after image conversion: even a tiny
+                    # scheduling jitter discards every second 30Hz packet.
                     last_pose_offer = 0.0
                     while not self.isInterruptionRequested():
                         try:
@@ -248,8 +250,6 @@ class StreamWorker(QThread):
                         with frame:
                             # Avoid an unnecessary full-resolution frame copy.
                             # Any QImage crossing threads must own its bytes.
-                            if moment - last_processed < 1.0 / 30.0:
-                                continue
                             pixels = frame.as_numpy(copy=False)
                             try:
                                 seq = frame.sequence
@@ -274,7 +274,6 @@ class StreamWorker(QThread):
                             finally:
                                 # Release the borrowed mmap view before close.
                                 del pixels
-                        last_processed = time.monotonic()
                         # Bounded single-slot mailbox: the Qt event queue
                         # never accumulates stale high-resolution frames.
                         self._publish(image, host_time_us, seq)
