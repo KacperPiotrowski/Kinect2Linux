@@ -41,14 +41,18 @@ systemctl --user is-active kinect2-broker.service
 W menu obok Basic/Advanced znajduje się **Szkielet 2D · CPU**, domyślnie
 wyłączony. Można go zaznaczyć **także podczas działającego podglądu**. Studio
 włącza/wyłącza analizę bez restartowania żadnej subskrypcji ani
-brokera. Wątek RGB oddaje **maksymalnie pięć kopii obrazu na sekundę**
+brokera. Wątek RGB oddaje **maksymalnie pięć klatek na sekundę**
 do osobnego wątku TrackingSession("body", mode="basic").
-ONNX nie blokuje już odbioru nowych klatek RGB. Wynik (17 punktów COCO)
-rysowany jest na **najnowszym** podglądzie RGB tylko jeśli estymacja ma
-mniej niż 400 ms. Ponieważ pozycja pochodzi z wcześniejszej klatki,
-przy szybkich ruchach szkielet może nieco odstawać od osoby.
-To **asynchroniczna estymacja 2D, a nie dokładne czasowo spasowanie**
-obrazu RGB ani rejestracja z Depth. IR i Depth pozostają niezależne.
+ONNX nie blokuje już odbioru nowych klatek RGB. Po włączeniu opcji
+górny panel dzieli się na **bieżący obraz RGB** i **osobny podgląd
+szkieletu**. Zielone 17 punktów COCO rysowane jest na dokładnie
+**tej samej kopii RGB**, którą przeanalizował model. Dzięki temu
+nie ma fałszywego dopasowania starej pozy do nowego obrazu. Nie jest to
+jednak płynny realtime motion capture — panel szkieletu aktualizuje
+się tak szybko, jak CPU potrafi przetwarzać RTMPose. Gdy człowiek szybko
+się porusza, panel ze szkieletem będzie pozostawał za żywym RGB,
+ale jego linie powinny pasować do obrazu **w tym panelu**.
+IR i Depth pozostają niezależne. Bez kalibracji i 3D.
 Start/Stop nadal dotyczą tylko naszych subskrypcji brokera.
 
 Model potrzebuje **dwóch lokalnych plików ONNX** w katalogu models.
@@ -131,15 +135,42 @@ Teraz:
 - model dostaje co najwyżej pięć klatek RGB na sekundę i ma
   **jednoelementowy bufor** — stare klatki wypadają, a wątek podglądu
   nie czeka na analizę;
-- rysowanie szkieletu na nowszej klatce jest **przybliżeniem czasowym**.
-  Dla wymagającego motion capture należy później rozdzielić prezentację
-  modeli i/lub użyć bufora klatek oznaczonych tym samym numerem sekwencji;
+- po zgłoszeniu niedopasowania szkieletu rysujemy go teraz w
+  **oddzielnym panelu ze skopiowaną klatką RGB użytą przez ONNX**.
+  Prawy panel może działać wolniej, ale nie rozjeżdża już sylwetki
+  względem obrazu, na którym została wyznaczona;
 - inferencja ONNX nadal zużywa zasoby CPU i pamięć. Nawet osobny wątek
   nie gwarantuje zachowania identycznego FPS dla wszystkich urządzeń.
 
 Wymaga ponownego testu na fizycznym Kinect v2: FPS RGB/IR/Depth przy
 wyłączonym i włączonym szkielecie, CPU, czytelność linii podczas ruchu,
 Start/Stop i zamknięcie okna podczas inicjalizacji modeli.
+
+### Pomiar problemu ~15 FPS bez zgadywania
+
+Samo podniesienie limitu GUI z 10 do 30 FPS nie udowadnia, że broker
+dostarcza więcej niż ~15 FPS. Aby odróżnić problem dostarczania klatek
+od wąskiego gardła Qt, najpierw zamknij Studio (tak, by jego okno nie
+konkurowało o CPU), pozostaw działający broker i uruchom:
+
+~~~bash
+python tools/kinect2_studio_fps_probe.py --seconds 10
+~~~
+
+Narzędzie przez 10 sekund mierzy jednoczesnych trzech odbiorców
+RGB/IR/Depth bez NumPy, Qt, renderowania czy ONNX. Zwraca **odebrane
+klatki na sekundę** i liczbę pominiętych starych klatek. To **nie** jest
+FPS fizycznego sensora: wynik uwzględnia dostarczanie przez brokera i
+system operacyjny. Jeśli bez GUI jest ~15, źródła ograniczenia trzeba
+szukać wcześniej niż w prezentacji Qt (broker, transport, obciążenie
+USB/CPU). Jeśli bez GUI jest dużo więcej niż ~15, obciążeniem staje się
+konwersja/skalowanie/rysowanie aplikacji.
+
+W tej wersji podglądu czytamy surowe bufory przez
+`frame.as_numpy(copy=False)` tylko wewnątrz czasu życia mmap,
+po czym **kopiujemy wyłącznie dane do mniejszych, własnych QImage**
+zamiast kopiować całe RGB 1920×1080. Ogranicza to transfer pamięci,
+ale **nie stanowi gwarancji** FPS czy braku zacięć na sprzęcie.
 
 ## Ograniczenia
 
