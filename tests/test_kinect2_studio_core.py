@@ -27,6 +27,32 @@ class StudioCoreTests(unittest.TestCase):
         self.assertEqual(locations.get("QShortcut"), "PySide6.QtGui")
         self.assertEqual(locations.get("QKeySequence"), "PySide6.QtGui")
 
+    def test_studio_receiver_has_no_redundant_30fps_rate_gate(self):
+        """Broker already paces frames; a post-conversion 33ms gate halves FPS.
+
+        Keep this guard even on no-Qt CI hosts. GUI timer plus latest-only
+        mailbox can drop frames without a second sleep/skip in the receiver.
+        """
+        tree = ast.parse((ROOT / "tools/kinect2_studio.py").read_text())
+        stream = next(
+            node for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "StreamWorker"
+        )
+        receiver = next(
+            node for node in stream.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_run_capture"
+        )
+        identifiers = {
+            node.id for node in ast.walk(receiver)
+            if isinstance(node, ast.Name)
+        }
+        self.assertNotIn("last_processed", identifiers)
+        self.assertIn("last_pose_offer", identifiers)
+        self.assertIn("receive_latest", {
+            node.attr for node in ast.walk(receiver)
+            if isinstance(node, ast.Attribute)
+        })
+
     def test_presence_exact_names_not_easy_effects_or_monitor(self):
         listing = (
             "1\teasyeffects_source\tPipeWire\tfloat32le 2ch 48000Hz\tRUNNING\n"
