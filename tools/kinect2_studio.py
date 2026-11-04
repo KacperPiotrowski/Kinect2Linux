@@ -240,7 +240,6 @@ class StreamWorker(QThread):
                     # One upstream 30Hz cadence is enough. Do not add
                     # another 33ms gate after image conversion: even a tiny
                     # scheduling jitter discards every second 30Hz packet.
-                    last_pose_offer = 0.0
                     while not self.isInterruptionRequested():
                         try:
                             frame, _skipped = camera.receive_latest(max_pending=16)
@@ -264,11 +263,13 @@ class StreamWorker(QThread):
                                         QImage.Format.Format_BGR888,
                                     ).copy()
                                     pose = self.pose_worker
-                                    if (pose is not None and pose.is_enabled()
-                                            and moment - last_pose_offer >= 0.20):
+                                    if pose is not None and pose.is_enabled():
+                                        # Offer each RGB frame. PoseWorker uses a
+                                        # bounded one-slot mailbox and consumes
+                                        # the newest input as fast as real ONNX
+                                        # inference permits. No artificial 5Hz.
                                         pose.offer(bgr, image.copy(),
                                                    host_time_us, seq)
-                                        last_pose_offer = moment
                                 else:
                                     image = frame_image(self.kind, pixels)
                             finally:
