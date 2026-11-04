@@ -146,6 +146,31 @@ Wymaga ponownego testu na fizycznym Kinect v2: FPS RGB/IR/Depth przy
 wyłączonym i włączonym szkielecie, CPU, czytelność linii podczas ruchu,
 Start/Stop i zamknięcie okna podczas inicjalizacji modeli.
 
+### Naprawa kolejnego błędu: 15 FPS przy brokerze dostarczającym 30
+
+Test urządzenia bez Qt i ONNX pokazał **RGB 30.0 / IR 30.0 / Depth 30.0
+dostarczonych FPS**, brak pominięć kolejki i brak timeoutów. Podgląd GUI
+nadal pokazywał około **15.1 FPS**; osobny panel 2D około **4.4 FPS**.
+
+W kodzie `StreamWorker._run_capture()` istniał drugi warunek:
+`moment - last_processed < 1/30`. `last_processed` był aktualizowany
+**po konwersji** obrazu, więc opóźnienie konwersji i jitter zegara
+przy dostarczaniu co ~33.3 ms odrzucały często co drugą klatkę. Usunęliśmy
+ten sztuczny filtr. Nadal działa **jednoelementowy bufor** najnowszej
+klatki i zegar GUI 33 ms; przy rzeczywistym przeciążeniu klatki mogą
+być pomijane, ale nie są odrzucane tylko ze względu na kolejny
+konkurujący interwał. Nie gwarantuje to stałych 30 FPS na KDE —
+potrzebny test sprzętowy po poprawce.
+
+**Dlaczego licznik `ms` stale rośnie i spada?** To wiek aktualnie
+pokazywanej klatki od czasu publikacji przez brokera, **nie**
+czas renderowania ani pomiar ekspozycji Kinecta. W odświeżaniu 30 Hz
+czas między klatkami wynosi średnio 33.3 ms, więc wiek będzie rosnąć
+do momentu prezentacji nowszej klatki, po czym spadnie. W raporcie
+`fps_probe` median `0 ms` to liczba zaokrąglona do pełnego ms,
+a nie zerowy czas transmisji. FPS panelu RGB to ilość **wyświetlonych**
+klatek na sekundę, a panelu pozy — ilość ukończonych analiz.
+
 ### Pomiar problemu ~15 FPS bez zgadywania
 
 Samo podniesienie limitu GUI z 10 do 30 FPS nie udowadnia, że broker
