@@ -2,6 +2,16 @@
 from __future__ import annotations
 
 
+
+def studio_cpu_thread_default(logical_cores: int | None) -> str:
+    """Conservative local Studio profile; users may override via ORT env.
+
+    Returns the string for os.environ.setdefault, not a global mutation.
+    One thread on single-core machines, at most four on larger CPUs.
+    """
+    return str(min(4, max(1, logical_cores or 1)))
+
+
 def audio_presence(pactl_sources: str) -> dict[str, bool]:
     """Only matching live source NAMES count; don't infer signal from 'RUNNING'."""
     names = set()
