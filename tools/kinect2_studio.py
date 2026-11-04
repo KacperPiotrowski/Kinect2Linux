@@ -39,7 +39,9 @@ from kinect2_linux.frame_client import (  # noqa: E402
 from kinect2_studio_core import (  # noqa: E402
     audio_presence, broker_summary, studio_cpu_thread_default,
 )
-from kinect2_studio_pose import skeleton_geometry  # noqa: E402
+from kinect2_studio_pose import (  # noqa: E402
+    skeleton_geometry, pose_quality, pose_quality_text,
+)
 from kinect2_linux.tracking import TrackingSession, TrackingUnavailable  # noqa: E402
 
 
@@ -201,9 +203,10 @@ class PoseWorker(QThread):
                     still_enabled = self._enabled
                 if still_enabled and not self.isInterruptionRequested():
                     lines, joints = skeleton_geometry(result)
+                    joint_quality = pose_quality(result)
                     self.result_ready.emit(
                         (source_image, lines, joints, published_us, seq,
-                         len(result.subjects)),
+                         len(result.subjects), joint_quality),
                         elapsed,
                     )
         finally:
@@ -490,6 +493,8 @@ class StudioWindow(QMainWindow):
         self.stereo = field("Kinect2_Stereo")
         self.pose_result = field("Body Tracking 2D (CPU)")
         self.pose_result.setText("Wyłączony")
+        self.joint_quality = field("COCO-17 · wykryte stawy (próg score ≥ 0,45)")
+        self.joint_quality.setText("Wyłączony")
         self.info = QLabel(
             "Podgląd na żywo. Nie zapisujemy obrazu, dźwięku ani danych "
             "biometrycznych. Nie otwieramy fizycznego USB."
@@ -558,6 +563,9 @@ class StudioWindow(QMainWindow):
         self.pose_result.setText(
             "Oczekiwanie na RGB" if self.pose_check.isChecked() else "Wyłączony"
         )
+        self.joint_quality.setText(
+            "Oczekiwanie na model" if self.pose_check.isChecked() else "Wyłączony"
+        )
         self._pose_frame_stats = [time.monotonic(), 0, 0.0]
         self.pose_tile.reset()
         self._pose_worker = PoseWorker()
@@ -579,10 +587,15 @@ class StudioWindow(QMainWindow):
         self.pose_result.setText(
             "Oczekiwanie na analizę RGB…" if checked else "Wyłączony"
         )
+        self.joint_quality.setText(
+            "Oczekiwanie na model" if checked else "Wyłączony"
+        )
 
     def _pose_state(self, message: str):
         if self.pose_check.isChecked() and not self._stopping:
             self.pose_result.setText(message)
+            if message.startswith("Śledzenie niedostępne"):
+                self.joint_quality.setText("Brak wyniku modelu")
 
     def _set_pose_tile_visible(self, show: bool):
         grid = self._preview_grid
@@ -600,7 +613,7 @@ class StudioWindow(QMainWindow):
     def _pose_result_ready(self, result, elapsed_ms: float):
         if not self.pose_check.isChecked() or self._stopping:
             return
-        source_image, lines, joints, published_us, seq, people = result
+        source_image, lines, joints, published_us, seq, people, quality = result
         annotated = overlay_geometry(source_image, lines, joints)
         now = time.monotonic()
         stats = self._pose_frame_stats
@@ -611,6 +624,7 @@ class StudioWindow(QMainWindow):
         age_ms = max(0.0, (time.monotonic_ns() // 1000 -
                             published_us) / 1000.0)
         self.pose_tile.show_frame(annotated, stats[2], age_ms, seq)
+        self.joint_quality.setText(pose_quality_text(quality))
         self.pose_result.setText(
             f"{people} osób · inferencja {elapsed_ms:.0f} ms · "
             f"wynik {age_ms:.0f} ms od publikacji RGB"
@@ -678,6 +692,7 @@ class StudioWindow(QMainWindow):
             tile.reset()
         self.pose_tile.reset()
         self.pose_result.setText("Wyłączony")
+        self.joint_quality.setText("Wyłączony")
         self.start_btn.setEnabled(not self._closing)
         self.stop_btn.setEnabled(False)
         self.pose_check.setEnabled(not self._closing)
