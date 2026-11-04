@@ -252,6 +252,46 @@ Oryginalny SDK wykorzystywał dane głębi do śledzenia 25 stawów
 projektu śledzenia z Depth, kalibracji oraz walidacji dokładności
 i latencji, zanim będziemy mówić o profesjonalnym Body Tracking 3D.
 
+### Wynik benchmarku Ryzen 9 7900: liczba wątków ma znaczenie
+
+Test na realnej klatce 960×540 z jedną osobą, 20 powtórzeń
+(wartości mediany, jednostka ms). Pozycja pochodzi z modeli
+YOLOX-tiny + RTMPose-s uruchamianych na CPU:
+
+| ONNX Runtime intra-op | Pełny detektor + poza | Detektor | Poza | Teoretyczne analizy/s |
+| --- | ---: | ---: | ---: | ---: |
+| 1 wątek | 66.7 ms | 54.4 ms | 12.1 ms | 15.0 |
+| 2 wątki | 38.3 ms | 30.6 ms | 7.3 ms | 26.1 |
+| 4 wątki | 26.3 ms | 19.8 ms | 5.5 ms | 38.0 |
+| 6 wątków | 24.4 ms | 17.8 ms | 5.3 ms | 40.9 |
+
+To **nie** są zmierzone FPS w aplikacji ani gwarancja 30 Hz
+dla wielu osób. Zwróć uwagę, że detektor jest głównym kosztem.
+Dawne ~4.7 FPS w Studio było blisko celowego limitu 5 klatek
+na sekundę; limit usunęliśmy, a wynik benchmarku dodatkowo wskazuje,
+że **1 wątek ONNX** mógł ograniczać tempo analizy do ~15 FPS.
+
+**Nowy domyślny profil wyłącznie dla procesu Kinect2 Studio**:
+`min(4, os.cpu_count())` wątków ONNX Runtime (minimum 1).
+Nie zmieniamy domyślnego ustawienia SDK, demonstratorów,
+WirePlumber ani parametrów systemowych. Użytkownik może go
+świadomie zastąpić, na przykład:
+
+~~~bash
+KINECT2_BODY_ORT_THREADS=6 python tools/kinect2_studio.py
+~~~
+
+Wynik 4 i 6 wątków różni się niewiele w benchmarku jednego
+powtarzanego obrazu (~26.3 vs ~24.4 ms), a w działającym GUI 6
+wątków może konkurować z konwersją IR/Depth o czas CPU.
+Dlatego **4 jest ustawieniem startowym do sprawdzenia na
+urządzeniu**, a nie twierdzeniem o uniwersalnym optimum.
+Zapisz rzeczywiste FPS z włączonym szkieletem dla 4 i 6
+wątków, obserwuj też FPS RGB/IR/Depth i stabilność aplikacji.
+Oryginalny Kinect SDK v2 bazował na Depth i 25 stawach 3D,
+więc porównanie z naszym 17-punktowym modelem RGB nadal
+dotyczy innych metod śledzenia.
+
 ## Ograniczenia
 
 - IR jest skalowane dla podglądu; nie modyfikujemy natywnych klatek.
