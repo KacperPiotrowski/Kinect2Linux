@@ -118,11 +118,10 @@ def overlay_body(image: QImage, result) -> QImage:
 
 
 class PoseWorker(QThread):
-    """Optional, bounded 5 Hz CPU inference. Never blocks RGB capture.
+    """Optional CPU analysis of a single, owned RGB snapshot.
 
-    The single pending BGR snapshot is replaced by newer frames while RTMPose
-    computes; the UI separately uses its latest RGB image. A pose from a
-    previous frame is an approximate overlay, NOT registered/synchronized 3D.
+    The overlay is rendered on precisely the frame that was inferred.
+    Live RGB stays independent; this does not provide 3D tracking.
     """
     result_ready = Signal(object, float)
     state = Signal(str)
@@ -144,12 +143,13 @@ class PoseWorker(QThread):
         with self._condition:
             return self._enabled
 
-    def offer(self, pixels, host_time_us: int, sequence: int) -> None:
+    def offer(self, pixels, image: QImage, host_time_us: int,
+              sequence: int) -> None:
         with self._condition:
             if not self._enabled or self.isInterruptionRequested():
                 return
-            # Caller provides a privately owned BGR array.
-            self._pending = (pixels, host_time_us, sequence)
+            # The BGR buffer and source QImage are owned by this subscriber.
+            self._pending = (pixels, image, host_time_us, sequence)
             self._condition.notify_all()
 
     def stop(self) -> None:
@@ -180,7 +180,7 @@ class PoseWorker(QThread):
                 if tracker is None:
                     tracker = TrackingSession("body", mode="basic")
                     self.state.emit("Ładowanie lokalnych modeli RTMPose-s…")
-                pixels, published_us, seq = pending
+                pixels, source_image, published_us, seq = pending
                 start = time.perf_counter()
                 try:
                     result = tracker.process(pixels)
@@ -200,7 +200,8 @@ class PoseWorker(QThread):
                 if still_enabled and not self.isInterruptionRequested():
                     lines, joints = skeleton_geometry(result)
                     self.result_ready.emit(
-                        (lines, joints, published_us, seq, len(result.subjects)),
+                        (source_image, lines, joints, published_us, seq,
+                         len(result.subjects)),
                         elapsed,
                     )
         finally:
@@ -245,23 +246,34 @@ class StreamWorker(QThread):
                             continue
                         moment = time.monotonic()
                         with frame:
-                            # Keep expensive conversions below 30 Hz.
-                            # The UI will coalesce and present only newest image.
+                            # Avoid an unnecessary full-resolution frame copy.
+                            # Any QImage crossing threads must own its bytes.
                             if moment - last_processed < 1.0 / 30.0:
                                 continue
-                            pixels = frame.as_numpy()  # safe owned copy
-                            seq = frame.sequence
-                            host_time_us = frame.host_time_us
-                        image = frame_image(self.kind, pixels)
-                        # The main preview NEVER waits for ONNX inference.
-                        # Transfer at most 5 RGB frames/s to the independent
-                        # pose worker, replacing any unprocessed snapshot.
-                        pose = self.pose_worker
-                        if (pose is not None and pose.is_enabled() and
-                                moment - last_pose_offer >= 0.20):
-                            bgr = np.ascontiguousarray(pixels[::2, ::2, :3])
-                            pose.offer(bgr, host_time_us, seq)
-                            last_pose_offer = moment
+                            pixels = frame.as_numpy(copy=False)
+                            try:
+                                seq = frame.sequence
+                                host_time_us = frame.host_time_us
+                                if self.kind == "rgb":
+                                    bgr = np.ascontiguousarray(
+                                        pixels[::2, ::2, :3]
+                                    )
+                                    h, w = bgr.shape[:2]
+                                    image = QImage(
+                                        bgr.data, w, h, bgr.strides[0],
+                                        QImage.Format.Format_BGR888,
+                                    ).copy()
+                                    pose = self.pose_worker
+                                    if (pose is not None and pose.is_enabled()
+                                            and moment - last_pose_offer >= 0.20):
+                                        pose.offer(bgr, image.copy(),
+                                                   host_time_us, seq)
+                                        last_pose_offer = moment
+                                else:
+                                    image = frame_image(self.kind, pixels)
+                            finally:
+                                # Release the borrowed mmap view before close.
+                                del pixels
                         last_processed = time.monotonic()
                         # Bounded single-slot mailbox: the Qt event queue
                         # never accumulates stale high-resolution frames.
@@ -367,7 +379,7 @@ class StudioWindow(QMainWindow):
         self._stopping = False
         self._closing = False
         self._pose_worker = None
-        self._pose_geometry = None
+        self._pose_frame_stats = [time.monotonic(), 0, 0.0]
         self._present_counts = {}
 
         self.setStyleSheet("""
@@ -440,7 +452,14 @@ class StudioWindow(QMainWindow):
             "ir": PreviewTile("Infrared · 512 × 424", "Oczekiwanie na podgląd IR"),
             "depth": PreviewTile("Depth · 512 × 424", "Oczekiwanie na pomiary Depth"),
         }
+        self._preview_grid = grid
+        self.pose_tile = PreviewTile(
+            "Szkielet 2D · analizowana klatka RGB",
+            "Włącz Szkielet 2D · CPU, aby zobaczyć analizę"
+        )
         grid.addWidget(self.tiles["rgb"], 0, 0, 1, 2)
+        grid.addWidget(self.pose_tile, 0, 1, 1, 1)
+        self.pose_tile.hide()
         grid.addWidget(self.tiles["ir"], 1, 0)
         grid.addWidget(self.tiles["depth"], 1, 1)
         grid.setRowStretch(0, 2)
@@ -497,6 +516,7 @@ class StudioWindow(QMainWindow):
         foot.setObjectName("small")
         outer.addWidget(foot)
         self._set_mode()
+        self._set_pose_tile_visible(False)
         self._status = StatusWorker()
         self._status.report.connect(self._update_status)
         self._status.start()
@@ -538,7 +558,8 @@ class StudioWindow(QMainWindow):
         self.pose_result.setText(
             "Oczekiwanie na RGB" if self.pose_check.isChecked() else "Wyłączony"
         )
-        self._pose_geometry = None
+        self._pose_frame_stats = [time.monotonic(), 0, 0.0]
+        self.pose_tile.reset()
         self._pose_worker = PoseWorker()
         self._pose_worker.state.connect(self._pose_state)
         self._pose_worker.result_ready.connect(self._pose_result_ready)
@@ -551,7 +572,8 @@ class StudioWindow(QMainWindow):
     def _pose_toggled(self, checked: bool):
         if self._stopping or self._closing:
             return
-        self._pose_geometry = None
+        self._set_pose_tile_visible(checked)
+        self.pose_tile.reset()
         if self._pose_worker is not None:
             self._pose_worker.set_enabled(checked)
         self.pose_result.setText(
@@ -562,13 +584,35 @@ class StudioWindow(QMainWindow):
         if self.pose_check.isChecked() and not self._stopping:
             self.pose_result.setText(message)
 
+    def _set_pose_tile_visible(self, show: bool):
+        grid = self._preview_grid
+        rgb = self.tiles["rgb"]
+        grid.removeWidget(rgb)
+        if show:
+            grid.addWidget(rgb, 0, 0, 1, 1)
+            self.pose_tile.show()
+        else:
+            self.pose_tile.hide()
+            grid.addWidget(rgb, 0, 0, 1, 2)
+
     def _pose_result_ready(self, result, elapsed_ms: float):
-        if self.pose_check.isChecked() and not self._stopping:
-            self._pose_geometry = result
-            self.pose_result.setText(
-                f"{result[4]} osób · {elapsed_ms:.0f} ms / analiza · "
-                "2D z wcześniejszej klatki RGB"
-            )
+        if not self.pose_check.isChecked() or self._stopping:
+            return
+        source_image, lines, joints, published_us, seq, people = result
+        annotated = overlay_geometry(source_image, lines, joints)
+        now = time.monotonic()
+        stats = self._pose_frame_stats
+        stats[1] += 1
+        if now - stats[0] >= 1.0:
+            stats[2] = stats[1] / (now - stats[0])
+            stats[0], stats[1] = now, 0
+        age_ms = max(0.0, (time.monotonic_ns() // 1000 -
+                            published_us) / 1000.0)
+        self.pose_tile.show_frame(annotated, stats[2], age_ms, seq)
+        self.pose_result.setText(
+            f"{people} osób · inferencja {elapsed_ms:.0f} ms · "
+            f"wynik {age_ms:.0f} ms od publikacji RGB"
+        )
 
     def _pose_finished(self):
         if self._pose_worker is not None:
@@ -584,14 +628,6 @@ class StudioWindow(QMainWindow):
             if latest is None:
                 continue
             image, host_time_us, seq = latest
-            if kind == "rgb" and self.pose_check.isChecked():
-                geometry = self._pose_geometry
-                if geometry is not None:
-                    lines, joints, pose_published_us, _pose_seq, _count = geometry
-                    pose_age_ms = (time.monotonic_ns() // 1000 -
-                                   pose_published_us) / 1000.0
-                    if 0.0 <= pose_age_ms <= 400.0:
-                        image = overlay_geometry(image, lines, joints)
             now = time.monotonic()
             stats = self._present_counts.get(kind)
             if stats is None:
@@ -616,7 +652,6 @@ class StudioWindow(QMainWindow):
         self.stop_btn.setEnabled(False)
         self.start_btn.setEnabled(False)
         self.pose_check.setEnabled(False)
-        self._pose_geometry = None
         self.pose_result.setText("Zatrzymywanie…")
         for worker in self._workers.values():
             worker.requestInterruption()
@@ -639,6 +674,7 @@ class StudioWindow(QMainWindow):
         self._stopping = False
         for tile in self.tiles.values():
             tile.reset()
+        self.pose_tile.reset()
         self.pose_result.setText("Wyłączony")
         self.start_btn.setEnabled(not self._closing)
         self.stop_btn.setEnabled(False)
