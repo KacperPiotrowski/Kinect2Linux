@@ -1,0 +1,56 @@
+name: AUR package smoke build (Arch)
+
+on:
+  pull_request:
+    paths:
+      - 'packaging/arch/**'
+      - '.github/workflows/aur-package.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  arch-package:
+    # This job evaluates PKGBUILD code, so restrict it to branches in this repo.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    steps:
+      - name: Install Arch build prerequisites
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm --needed git cmake ninja pkgconf patchelf \
+            nlohmann-json libusb libjpeg-turbo python systemd
+      - uses: actions/checkout@v4
+      - name: Stage unprivileged AUR test checkout
+        env:
+          SOURCE_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_BRANCH" =~ ^[a-zA-Z0-9._/-]+$ ]] || exit 2
+          useradd -m -s /bin/bash aur-builder
+          install -d -m 0755 /tmp/kinect2-aur-test
+          cp packaging/arch/PKGBUILD /tmp/kinect2-aur-test/PKGBUILD
+          # Test the proposed branch. The published recipe tracks main.
+          sed -i "s|#branch=main|#branch=${SOURCE_BRANCH}|" /tmp/kinect2-aur-test/PKGBUILD
+          chown -R aur-builder:aur-builder /tmp/kinect2-aur-test
+      - name: Full makepkg build and native tests (no Kinect)
+        env:
+          KINECT2_BUILD_JOBS: '2'
+        run: |
+          runuser -u aur-builder -- env KINECT2_BUILD_JOBS="$KINECT2_BUILD_JOBS" \
+            bash -c 'cd /tmp/kinect2-aur-test && makepkg --cleanbuild --check --noconfirm'
+      - name: Inspect package contents and private runtime dependency
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          packages=(/tmp/kinect2-aur-test/kinect2linux-git-*.pkg.tar.zst)
+          [[ ${#packages[@]} -eq 1 ]] || { echo 'Expected one AUR test package'; exit 1; }
+          bsdtar -tf "${packages[0]}" | tee /tmp/aur-files.txt
+          grep -qx 'usr/bin/kinect2-broker-hw' /tmp/aur-files.txt
+          grep -qx 'usr/lib/systemd/user/kinect2-broker.service' /tmp/aur-files.txt
+          grep -E '^usr/lib/kinect2linux/libfreenect2.so' /tmp/aur-files.txt
+          grep -q '^usr/lib/python.*site-packages/kinect2_linux/__init__.py$' /tmp/aur-files.txt
+          grep -q '^usr/share/licenses/kinect2linux-git/LICENSE$' /tmp/aur-files.txt
