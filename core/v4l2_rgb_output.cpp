@@ -97,7 +97,14 @@ bool V4l2RgbOutput::start(const std::string& path) noexcept {
   }
   const int fd = ::open(path.c_str(), O_WRONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW);
   if (fd < 0) {
-    set_error("cannot open /dev/video11: old RGB service may own the writer");
+    const int open_errno = errno;
+    std::string message = "cannot open /dev/video11: ";
+    message += std::strerror(open_errno);
+    if (open_errno == EBUSY)
+      message += " (another writer may be active, including kinect2-rgb-webcam.service)";
+    else if (open_errno == EACCES || open_errno == EPERM)
+      message += " (check video-device permissions)";
+    set_error(std::move(message));
     return false;
   }
   v4l2_format format{};
