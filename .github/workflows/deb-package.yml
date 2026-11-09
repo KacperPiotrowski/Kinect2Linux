@@ -55,7 +55,7 @@ jobs:
           dpkg-deb --contents "$1" | grep 'kinect2-broker-hw'
           apt-get install -y --no-install-recommends "./$1"
           dpkg-query -W -f='${Package} ${Version} ${Status}\n' kinect2linux
-          python3 -c 'from kinect2_linux import BrokerClient; from kinect2_linux.frame_client import FrameClient'
+          PYTHONDONTWRITEBYTECODE=1 python3 -c 'from kinect2_linux import BrokerClient; from kinect2_linux.frame_client import FrameClient'
           /usr/bin/kinect2-broker-hw --help
           readelf -d /usr/bin/kinect2-broker-hw | grep -F 'ORIGIN/../lib/kinect2linux'
           ldd /usr/bin/kinect2-broker-hw | tee /tmp/broker-ldd.txt
@@ -69,3 +69,4 @@ jobs:
         run: |
           dpkg --remove kinect2linux
           test ! -e /usr/bin/kinect2-broker-hw
+          test ! -e /usr/lib/python3/dist-packages/kinect2_linux
