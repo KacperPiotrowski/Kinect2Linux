@@ -62,6 +62,9 @@ jobs:
           grep -q 'libfreenect2.so' /tmp/broker-ldd.txt
           ! grep -q 'not found' /tmp/broker-ldd.txt
           test -f /usr/lib/systemd/user/kinect2-broker.service
+          for notice in APACHE20 GPL2 CONTRIB; do
+            test -s "/usr/share/doc/kinect2linux/libfreenect2/$notice"
+          done
           test ! -e /etc/systemd/system/kinect2-broker.service
       - name: Verify uninstall (no host service manipulation)
         env:
