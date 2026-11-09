@@ -30,7 +30,7 @@ std::string loopback_version() {
   ::close(fd);
   if (n <= 0) return "unknown";
   std::string result(buffer, static_cast<std::size_t>(n));
-  while (!result.empty() && (result.back() == '\\n' || result.back() == '\\r'))
+  while (!result.empty() && (result.back() == '\n' || result.back() == '\r'))
     result.pop_back();
   return result.empty() ? "unknown" : result;
 }
