@@ -38,7 +38,14 @@ RemainAfterExit=yes
 WantedBy=multi-user.target
 UNIT
 "$SYSTEMCTL" daemon-reload
-"$SYSTEMCTL" enable --now kinect2-rgb-device.service
-"$SYSTEMCTL" is-active --quiet kinect2-rgb-device.service ||
-  { echo 'Device setup service did not remain active; inspect journalctl -u kinect2-rgb-device.' >&2; exit 2; }
+if ! "$SYSTEMCTL" enable --now kinect2-rgb-device.service; then
+  "$SYSTEMCTL" disable --now kinect2-rgb-device.service >/dev/null 2>&1 || true
+  echo 'Device setup service failed; autostart disabled. Inspect journalctl -u kinect2-rgb-device.' >&2
+  exit 2
+fi
+if ! "$SYSTEMCTL" is-active --quiet kinect2-rgb-device.service; then
+  "$SYSTEMCTL" disable --now kinect2-rgb-device.service >/dev/null 2>&1 || true
+  echo 'Device setup service did not remain active; autostart disabled. Inspect journalctl -u kinect2-rgb-device.' >&2
+  exit 2
+fi
 printf '[OK] Kinect IR and RGB virtual cameras prepared: /dev/video10, /dev/video11\n'
