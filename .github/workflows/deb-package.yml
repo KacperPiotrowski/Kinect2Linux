@@ -53,6 +53,13 @@ jobs:
           test "$#" -eq 1
           dpkg-deb --info "$1"
           dpkg-deb --contents "$1" | grep 'kinect2-broker-hw'
+          # Minimal Ubuntu container images may exclude /usr/share/doc/* at
+          # dpkg installation time while retaining */copyright. Validate
+          # license notices in the binary DEB payload itself.
+          for notice in APACHE20 GPL2 CONTRIB; do
+            dpkg-deb --contents "$1" |
+              grep -F "./usr/share/doc/kinect2linux/libfreenect2/$notice"
+          done
           apt-get install -y --no-install-recommends "./$1"
           dpkg-query -W -f='${Package} ${Version} ${Status}\n' kinect2linux
           PYTHONDONTWRITEBYTECODE=1 python3 -c 'from kinect2_linux import BrokerClient; from kinect2_linux.frame_client import FrameClient'
@@ -62,12 +69,8 @@ jobs:
           grep -q 'libfreenect2.so' /tmp/broker-ldd.txt
           ! grep -q 'not found' /tmp/broker-ldd.txt
           test -f /usr/lib/systemd/user/kinect2-broker.service || { echo "Missing packaged user unit"; exit 1; }
-          echo "Installed third-party notice files:"
-          find /usr/share/doc/kinect2linux/ -maxdepth 3 -type f -print
-          for notice in APACHE20 GPL2 CONTRIB; do
-            test -s "/usr/share/doc/kinect2linux/libfreenect2/$notice" ||
-              { echo "Missing or empty libfreenect2 notice: $notice"; exit 1; }
-          done
+          # Presence in the .deb was checked above; installed docs may be
+          # excluded by /etc/dpkg/dpkg.cfg.d/excludes inside minimal images.
           test ! -e /etc/systemd/system/kinect2-broker.service
       - name: Verify uninstall (no host service manipulation)
         env:
