@@ -17,7 +17,7 @@ AUR = ROOT / "packaging" / "arch"
 class AurPackagingTests(unittest.TestCase):
     def test_bash_syntax(self):
         subprocess.run(
-            ["bash", "-n", str(AUR / "PKGBUILD"), str(AUR / "kinect2-broker-run")],
+            ["bash", "-n", str(AUR / "PKGBUILD"), str(ROOT / "packaging/common/kinect2-broker-run")],
             check=True, timeout=10,
         )
 
@@ -29,23 +29,26 @@ class AurPackagingTests(unittest.TestCase):
         self.assertIn("git apply --check", recipe)
         self.assertIn("KINECT2_ENABLE_HARDWARE=ON", recipe)
         self.assertIn("/usr/lib/kinect2linux/", recipe)
-        self.assertIn("patchelf --set-rpath", recipe)
+        self.assertIn("cmake --install", recipe)
+        cmake = (ROOT / "CMakeLists.txt").read_text()
+        self.assertIn("INSTALL_RPATH", cmake)
+        self.assertIn("packaging/common/kinect2-broker-run", cmake)
         self.assertNotIn("systemctl --user enable", recipe)
         self.assertNotIn("modprobe ", recipe)
 
     def test_auxiliary_aur_sources_have_checksums(self):
         recipe = (AUR / "PKGBUILD").read_text()
-        for basename in ("kinect2-broker-run", "kinect2-broker.service", "README.md"):
+        for basename in ("README.md",):
             self.assertIn(f"'{basename}'", recipe)
             digest = hashlib.sha256((AUR / basename).read_bytes()).hexdigest()
             self.assertIn(digest, recipe)
 
     def test_unit_is_opt_in_and_runs_packaged_launcher(self):
-        unit = (AUR / "kinect2-broker.service").read_text()
+        unit = (ROOT / "packaging/common/kinect2-broker.service").read_text()
         self.assertIn("ExecStart=/usr/lib/kinect2linux/kinect2-broker-run", unit)
         self.assertIn("WantedBy=default.target", unit)
         self.assertNotIn("ExecStart=/home/", unit)
-        launcher = (AUR / "kinect2-broker-run").read_text()
+        launcher = (ROOT / "packaging/common/kinect2-broker-run").read_text()
         self.assertIn("/usr/bin/kinect2-broker-hw", launcher)
         self.assertIn("--auto-streams", launcher)
         self.assertIn('KINECT2_BROKER_V4L2:-0', launcher)
