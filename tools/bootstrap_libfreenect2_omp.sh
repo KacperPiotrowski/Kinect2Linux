@@ -89,6 +89,10 @@ for tool in cmake ninja; do
     echo "Missing build dependency: $tool" >&2
     exit 2
   fi
+  if ! "$tool" --version >/dev/null 2>&1; then
+    echo "Broken build dependency: $tool cannot run --version (check PATH and stale launchers)" >&2
+    exit 2
+  fi
 done
 
 # Explicit CPU-only baseline. No -march=native and no mandatory dedicated GPU.
