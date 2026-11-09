@@ -38,7 +38,8 @@ else
     fi
     [[ -n $ctl ]] || fail 'Missing v4l2loopback-ctl (install v4l2loopback-utils). Cannot add RGB to a loaded module; close camera clients and plan a safe module reload.'
     # Check the advertised command, not the numeric module version.
-    if ! "$ctl" --help 2>&1 | grep -Eq '(^|[[:space:]])add([[:space:]]|$)'; then
+    help_text=$("$ctl" --help 2>&1 || true)
+    if ! grep -Eq '(^|[[:space:]])add([[:space:]]|$)' <<< "$help_text"; then
       fail 'This v4l2loopback-ctl has no dynamic add command. Close readers of /dev/video10; after checking other consumers, unload the module yourself (modprobe -r v4l2loopback), then retry. The installer will never unload it automatically.'
     fi
     "$ctl" add -x 1 -n 'Kinect v2 RGB' /dev/video11 ||
