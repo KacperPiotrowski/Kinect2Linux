@@ -31,6 +31,9 @@ class AurPackagingTests(unittest.TestCase):
         self.assertIn("DESTDIR=", recipe)
         cmake = (ROOT / "CMakeLists.txt").read_text()
         self.assertIn("DESTINATION lib/kinect2linux", cmake)
+        self.assertIn("share/doc/kinect2linux/libfreenect2", cmake)
+        for notice in ("APACHE20", "GPL2", "CONTRIB"):
+            self.assertIn(notice, cmake)
         self.assertIn("cmake --install", recipe)
         cmake = (ROOT / "CMakeLists.txt").read_text()
         self.assertIn("INSTALL_RPATH", cmake)
