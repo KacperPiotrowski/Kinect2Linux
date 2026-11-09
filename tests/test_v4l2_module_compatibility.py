@@ -43,22 +43,23 @@ class V4L2ModuleCompatibilityTests(unittest.TestCase):
             text=True, capture_output=True, check=False, env=env,
         )
 
-    def test_installed_old_module_is_rejected_before_load(self):
+    def test_installed_old_module_is_informational_not_rejected(self):
         result = self.call("--installed", "0.12.7")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("CLIENT_USAGE", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Ubuntu-backported CLIENT_USAGE", result.stdout)
+        self.assertIn("probe", result.stdout)
 
     def test_installed_new_module_is_accepted(self):
         result = self.call("--installed", "0.13.1")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("0.13.1", result.stdout)
 
-    def test_loaded_old_module_is_rejected(self):
+    def test_loaded_old_module_may_be_compatible(self):
         self.module.mkdir()
         (self.module / "version").write_text("0.12.7\n")
         result = self.call("--loaded")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("unsupported", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Ubuntu-backported CLIENT_USAGE", result.stdout)
 
     def test_loaded_new_module_is_accepted(self):
         self.module.mkdir()
@@ -71,10 +72,11 @@ class V4L2ModuleCompatibilityTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("not loaded", result.stderr)
 
-    def test_unknown_version_fails_closed(self):
+    def test_unknown_version_is_informational_only(self):
         result = self.call("--installed", "custom-build")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Unrecognized", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("custom-build", result.stdout)
+        self.assertIn("does NOT prove", result.stdout)
 
 
 if __name__ == "__main__":
