@@ -54,6 +54,7 @@ if(KINECT2_ENABLE_HARDWARE)
   set_target_properties(kinect2_local_freenect2 PROPERTIES
     IMPORTED_LOCATION "${KINECT2_SO_DIR}/libfreenect2.so")
   add_executable(kinect2-broker-hw src/kinect_broker.cpp)
+  target_compile_definitions(kinect2-broker-hw PRIVATE KINECT2_HARDWARE_BROKER=1)
   target_link_libraries(kinect2-broker-hw PRIVATE kinect2_discovery
     kinect2_session kinect2_hardware_native kinect2_worker_supervisor
     kinect2_frame_hub kinect2_auto_capture kinect2_v4l2_rgb
