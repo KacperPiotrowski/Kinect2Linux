@@ -77,6 +77,13 @@ i twarz nie mają jeszcze adapterów w nowym interfejsie.
 
 ### Instalator krok po kroku (eksperymentalny, Arch Linux)
 
+Nowa, **jeszcze nieopublikowana i niesprawdzona na czystym systemie**
+recepta pakietu AUR `kinect2linux-git` znajduje się w
+[packaging/arch/](packaging/arch/README.md). Buduje sprzętowy broker wraz
+z przypiętym `libfreenect2`, ale nie uruchamia usług, nie instaluje modułów
+jądra ani nie zastępuje starszej instalacji ręcznej. Publikacja w AUR
+wymaga oddzielnego testu przez `makepkg` na Arch Linux.
+
 Przed pierwszą instalacją przeczytaj
 [pełną instrukcję i rollback](docs/INSTALL.md). Skrypt nie używa
 automatycznie `sudo` ani `pacman`, nie usuwa starych usług i nie
