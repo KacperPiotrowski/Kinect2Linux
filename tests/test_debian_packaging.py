@@ -10,7 +10,7 @@ DEB = ROOT / "packaging/debian"
 class DebianPackagingTests(unittest.TestCase):
     def test_shell_syntax(self):
         subprocess.run(
-            ["bash", "-n", str(DEB / "build-deb.sh"), str(DEB / "kinect2-broker-run")],
+            ["bash", "-n", str(DEB / "build-deb.sh"), str(ROOT / "packaging/common/kinect2-broker-run")],
             check=True, timeout=10,
         )
 
@@ -22,17 +22,21 @@ class DebianPackagingTests(unittest.TestCase):
         self.assertIn("ctest --test-dir", source)
         self.assertIn("git -C \"$ROOT\" archive HEAD", source)
         self.assertIn("/usr/lib/kinect2linux", source)
-        self.assertIn("python3/dist-packages", source)
+        self.assertIn("KINECT2_PYTHON_INSTALL_DIR=lib/python3/dist-packages", source)
+        self.assertIn("cmake --install", source)
+        cmake = (ROOT / "CMakeLists.txt").read_text()
+        self.assertIn("INSTALL_RPATH", cmake)
+        self.assertIn("packaging/common/kinect2-broker-run", cmake)
         self.assertIn("--root-owner-group", source)
         self.assertNotIn("systemctl --user enable", source)
         self.assertNotIn("modprobe ", source)
         self.assertNotIn("sudo ", source)
 
     def test_user_unit_is_never_auto_enabled(self):
-        unit = (DEB / "kinect2-broker.service").read_text()
+        unit = (ROOT / "packaging/common/kinect2-broker.service").read_text()
         self.assertIn("ExecStart=/usr/lib/kinect2linux/kinect2-broker-run", unit)
         self.assertIn("WantedBy=default.target", unit)
-        launcher = (DEB / "kinect2-broker-run").read_text()
+        launcher = (ROOT / "packaging/common/kinect2-broker-run").read_text()
         self.assertIn("KINECT2_BROKER_V4L2:-0", launcher)
         self.assertIn("/usr/bin/kinect2-broker-hw", launcher)
         self.assertNotIn("sudo ", launcher)
