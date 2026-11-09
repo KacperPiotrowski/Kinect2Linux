@@ -21,7 +21,7 @@ sha=$(git -C "$ROOT" rev-parse --short=8 HEAD)
 version="${KINECT2_DEB_VERSION:-0.0~git${revision}.${sha}-1}"
 dpkg --validate-version "$version" >/dev/null 2>&1 ||
   die "Invalid Debian version: $version"
-maintainer="${KINECT2_DEB_MAINTAINER:-Kinect2Linux CI <ci@example.invalid>}"
+maintainer="${KINECT2_DEB_MAINTAINER:?Set KINECT2_DEB_MAINTAINER to a real package maintainer before building.}"
 out="${KINECT2_DEB_OUT:-$ROOT/dist}"
 mkdir -p -- "$out"
 out=$(realpath "$out")
