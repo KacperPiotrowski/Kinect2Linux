@@ -14,7 +14,7 @@ modprobe_cmd=$(find_modprobe)
 label() { cat "/sys/class/video4linux/$1/name" 2>/dev/null || true; }
 check_name() {
   local device=$1 expected=$2
-  [[ -c /dev/$device ]] || fail "/dev/$device does not exist as a character device."
+  [[ -c /dev/$device && ! -L /dev/$device ]] || fail "/dev/$device does not exist as a character device."
   [[ $(label "$device") == "$expected" ]] ||
     fail "Refusing /dev/$device: expected '$expected', got '$(label "$device")'."
 }
