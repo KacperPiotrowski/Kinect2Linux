@@ -11,6 +11,10 @@ The recipe is modeled on the Arch AUR pilot and contains:
 - a systemd **user** service which is NEVER enabled by installation
 - a private `/usr/lib/kinect2linux/libfreenect2.so.*` library
 
+The package carries the original `libfreenect2` `APACHE20`, `GPL2` and
+`CONTRIB` notices under `/usr/share/doc/kinect2linux/libfreenect2/`.
+This does **not** replace a full license/source-availability review before release.
+
 No Microsoft Kinect SDK 2.0 binaries, model files, kernel drivers or USB device
 rules are included. The builder uses a temporary Git-archive copy of the
 current commit, builds and tests without touching the existing checkout,
