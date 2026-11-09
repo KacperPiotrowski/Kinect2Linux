@@ -61,9 +61,12 @@ jobs:
           ldd /usr/bin/kinect2-broker-hw | tee /tmp/broker-ldd.txt
           grep -q 'libfreenect2.so' /tmp/broker-ldd.txt
           ! grep -q 'not found' /tmp/broker-ldd.txt
-          test -f /usr/lib/systemd/user/kinect2-broker.service
+          test -f /usr/lib/systemd/user/kinect2-broker.service || { echo "Missing packaged user unit"; exit 1; }
+          echo "Installed third-party notice files:"
+          find /usr/share/doc/kinect2linux/ -maxdepth 3 -type f -print
           for notice in APACHE20 GPL2 CONTRIB; do
-            test -s "/usr/share/doc/kinect2linux/libfreenect2/$notice"
+            test -s "/usr/share/doc/kinect2linux/libfreenect2/$notice" ||
+              { echo "Missing or empty libfreenect2 notice: $notice"; exit 1; }
           done
           test ! -e /etc/systemd/system/kinect2-broker.service
       - name: Verify uninstall (no host service manipulation)
