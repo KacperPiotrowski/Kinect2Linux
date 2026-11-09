@@ -55,11 +55,14 @@ are **out of scope** for this guide.
 - Missing `nlohmann/json.hpp`: install `nlohmann-json3-dev` (#41).
 - Missing `turbojpeg.h`: install `libturbojpeg0-dev`; missing libusb headers:
   install `libusb-1.0-0-dev` (#41).
-- Default Ubuntu 24.04 `v4l2loopback` 0.12.7 is **not compatible** with the
-  broker's opt-in RGB webcam integration, which requires CLIENT_USAGE support
-  introduced in v0.13. Do not activate V4L2 until a supported kernel module
-  and userspace tools have been installed and checked. The offline broker
-  does **not** require v4l2loopback (#42, #44).
+- Default Ubuntu 24.04 `v4l2loopback` 0.12.7 has a **distribution
+  backport** of CLIENT_USAGE with a legacy event ID. The new broker tries
+  both upstream and Ubuntu event IDs; run `bin/kinect2-v4l2-probe --probe`
+  after creating the named device and before enabling the broker. Do not
+  rely on the version number alone. The older `v4l2loopback-ctl` lacks
+  dynamic `add`, so the root device setup creates both cameras with a
+  single module load when initially unloaded. The offline broker does
+  **not** require v4l2loopback (#42, #44).
 - If `modprobe` is missing on Ubuntu, install `kmod`; on Debian/Ubuntu it
   is normally under `/usr/sbin/modprobe`, not `/usr/bin/modprobe` (#43).
 
