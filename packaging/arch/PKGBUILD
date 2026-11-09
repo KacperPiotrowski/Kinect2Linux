@@ -1,0 +1,94 @@
+# Maintainer: upstream Kinect2Linux contributors
+# Packaging draft: set a real AUR maintainer contact before publishing.
+# Builds a hardware-capable broker; intentionally does not enable any service
+# or install / load a V4L2 kernel module.
+pkgname=kinect2linux-git
+pkgver=r0
+pkgrel=1
+pkgdesc="Unofficial Kinect v2 Linux broker (RGB/IR/Depth) and experimental Python SDK"
+arch=('x86_64')
+url='https://github.com/KacperPiotrowski/Kinect2Linux'
+license=('MIT' 'Apache-2.0' 'GPL-2.0-only')
+depends=('glibc' 'gcc-libs' 'libusb' 'libjpeg-turbo' 'python' 'systemd')
+makedepends=('cmake' 'ninja' 'git' 'pkgconf' 'nlohmann-json')
+optdepends=(
+  'python-numpy: typed Python frame arrays'
+  'v4l2loopback-dkms: optional system webcam output (requires supported module)'
+  'v4l2loopback-utils: optional loopback device setup'
+)
+provides=('kinect2linux')
+conflicts=('kinect2linux')
+source=(
+  'kinect2linux::git+https://github.com/KacperPiotrowski/Kinect2Linux.git#branch=main'
+  'libfreenect2::git+https://github.com/OpenKinect/libfreenect2.git#commit=fd64c5d9b214df6f6a55b4419357e51083f15d93'
+  'README.md'
+)
+sha256sums=(
+  'SKIP'
+  'SKIP'
+  'a8d356162a78df5054488328d39fd1b8e5d94165fe6237e26d27cb07204d75ce'
+)
+_upstream_cpu='85966b7dd39a1977b6f2f2b3a203f35a0d9f65e0'
+_patched_cpu='14756995f96687336e6614d83f99028cc680c4d5'
+
+pkgver() {
+  cd "${srcdir}/kinect2linux"
+  printf 'r%s.g%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short=8 HEAD)"
+}
+
+prepare() {
+  cd "${srcdir}/libfreenect2"
+  [[ $(git rev-parse HEAD) == 'fd64c5d9b214df6f6a55b4419357e51083f15d93' ]] ||
+    { echo 'Unexpected libfreenect2 revision' >&2; return 1; }
+  [[ $(git hash-object src/cpu_depth_packet_processor.cpp) == "${_upstream_cpu}" ]] ||
+    { echo 'Unexpected upstream CPU depth code' >&2; return 1; }
+  git apply --check "${srcdir}/kinect2linux/third_party/patches/libfreenect2-omp-cpu-depth.patch"
+  git apply "${srcdir}/kinect2linux/third_party/patches/libfreenect2-omp-cpu-depth.patch"
+  [[ $(git hash-object src/cpu_depth_packet_processor.cpp) == "${_patched_cpu}" ]] ||
+    { echo 'Patched CPU depth source hash mismatch' >&2; return 1; }
+}
+
+build() {
+  cmake -S "${srcdir}/libfreenect2" -B "${srcdir}/libfreenect2/build-omp" -G Ninja \
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=ON \
+    -DBUILD_EXAMPLES=OFF \
+    -DBUILD_OPENNI2_DRIVER=OFF \
+    -DENABLE_OPENCL=OFF \
+    -DENABLE_OPENGL=OFF \
+    -DENABLE_CUDA=OFF \
+    -DENABLE_VAAPI=OFF \
+    -DENABLE_TEGRAJPEG=OFF \
+    -DCMAKE_CXX_FLAGS="-fopenmp" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-fopenmp"
+  cmake --build "${srcdir}/libfreenect2/build-omp" --parallel "${KINECT2_BUILD_JOBS:-4}"
+
+  local _site
+  _site=$(python -c 'import sysconfig; print(sysconfig.get_path("purelib"))')
+  [[ ${_site} == /usr/lib/python*/site-packages ]] ||
+    { echo "Unexpected Python site-packages path: ${_site}" >&2; return 1; }
+  cmake -S "${srcdir}/kinect2linux" -B "${srcdir}/build-kinect2linux" -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DKINECT2_ENABLE_HARDWARE=ON \
+    "-DKINECT2_PYTHON_INSTALL_DIR=${_site#/usr/}" \
+    -DLIBFREENECT2_DIR="${srcdir}/libfreenect2"
+  cmake --build "${srcdir}/build-kinect2linux" --parallel "${KINECT2_BUILD_JOBS:-4}"
+}
+
+check() {
+  ctest --test-dir "${srcdir}/build-kinect2linux" --output-on-failure
+}
+
+package() {
+  local _root="${srcdir}/kinect2linux"
+
+  # CMake owns binaries, private libfreenect2, Python SDK and user service.
+  DESTDIR="${pkgdir}" cmake --install "${srcdir}/build-kinect2linux" --prefix /usr
+
+  # Package-specific metadata only.
+  install -Dm644 "${_root}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+  install -Dm644 "${_root}/THIRD_PARTY.md" "${pkgdir}/usr/share/doc/${pkgname}/THIRD_PARTY.md"
+  install -Dm644 "${srcdir}/README.md" "${pkgdir}/usr/share/doc/${pkgname}/AUR.md"
+}
