@@ -9,7 +9,7 @@ pkgdesc="Unofficial Kinect v2 Linux broker (RGB/IR/Depth) and experimental Pytho
 arch=('x86_64')
 url='https://github.com/KacperPiotrowski/Kinect2Linux'
 license=('MIT' 'Apache-2.0' 'GPL-2.0-only')
-depends=('glibc' 'gcc-libs' 'libusb' 'libjpeg-turbo' 'python' 'systemd-libs')
+depends=('glibc' 'gcc-libs' 'libusb' 'libjpeg-turbo' 'python' 'systemd')
 makedepends=('cmake' 'ninja' 'git' 'pkgconf' 'patchelf' 'nlohmann-json')
 optdepends=(
   'python-numpy: typed Python frame arrays'
