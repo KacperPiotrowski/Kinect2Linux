@@ -309,8 +309,13 @@ int main(int argc, char** argv) {
   bool enable_v4l2_rgb = false;
   std::string worker_executable;
   if (argc == 2 && std::string_view(argv[1]) == "--help") {
+#ifdef KINECT2_HARDWARE_BROKER
+    std::cout << "Usage: kinect2-broker-hw [--socket PATH] [--allow-device-control] [--worker /ABS/PATH] [--frame-preview] [--auto-streams] [--v4l2-rgb]\n"
+                 "Hardware support compiled in; USB access still requires an explicitly enabled device-control mode and suitable permissions.\n";
+#else
     std::cout << "Usage: kinect2-broker [--socket PATH] [--allow-device-control] [--worker /ABS/PATH] [--frame-preview] [--auto-streams] [--v4l2-rgb]\n"
-                 "Device control requires a separate --with-hardware build.\n";
+                 "Hardware support is not compiled in; build the separate kinect2-broker-hw target for device control.\n";
+#endif
     return 0;
   }
   for (int i = 1; i < argc; ++i) {
