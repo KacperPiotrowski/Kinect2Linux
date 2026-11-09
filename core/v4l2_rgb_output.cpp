@@ -1,4 +1,5 @@
 #include "core/v4l2_rgb_output.hpp"
+#include "core/v4l2_usage_events.hpp"
 
 #include <cerrno>
 #include <chrono>
@@ -19,9 +20,7 @@ constexpr std::uint32_t WIDTH = 1920;
 constexpr std::uint32_t HEIGHT = 1080;
 constexpr std::size_t RAW_SIZE = std::size_t(WIDTH) * HEIGHT * 4;
 constexpr std::size_t OUT_SIZE = std::size_t(WIDTH) * HEIGHT * 2;
-// v4l2loopback >=0.13 private event used by the existing working RGB bridge.
-constexpr std::uint32_t CLIENT_USAGE =
-    V4L2_EVENT_PRIVATE_START + 0x08E00000u + 1u;
+// Select the actual driver event ID at runtime (upstream or Ubuntu backport).
 
 std::uint8_t clamp8(int x) noexcept {
   return static_cast<std::uint8_t>(x < 0 ? 0 : (x > 255 ? 255 : x));
@@ -124,14 +123,19 @@ bool V4l2RgbOutput::start(const std::string& path) noexcept {
     ::close(fd);
     return false;
   }
-  v4l2_event_subscription sub{};
-  sub.type = CLIENT_USAGE;
-  sub.flags = V4L2_EVENT_SUB_FL_SEND_INITIAL;
-  if (::ioctl(fd, VIDIOC_SUBSCRIBE_EVENT, &sub) != 0) {
-    set_error("v4l2loopback client-usage events unavailable (requires >=0.13)");
+  const auto event = subscribe_usage_event(fd);
+  if (!event.type) {
+    const std::string error =
+        "v4l2loopback client-usage event unsupported on /dev/video11 "
+        "(upstream ioctl: " + std::string(std::strerror(event.upstream_error)) +
+        ", Ubuntu backport ioctl: " +
+        std::string(std::strerror(event.ubuntu_error)) +
+        "). Cannot automatically detect viewers; see docs/INSTALL.md.";
+    set_error(error);
     ::close(fd);
     return false;
   }
+  usage_event_type_ = event.type;
   v4l2_streamparm parm{};
   parm.type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
   parm.parm.output.timeperframe.numerator = 1;
@@ -173,6 +177,7 @@ void V4l2RgbOutput::stop() noexcept {
   if (worker_.joinable()) worker_.join();
   readers_.store(0);
   if (fd_ >= 0) { ::close(fd_); fd_ = -1; }
+  usage_event_type_ = 0;
 }
 
 bool V4l2RgbOutput::drain_usage() noexcept {
@@ -184,7 +189,7 @@ bool V4l2RgbOutput::drain_usage() noexcept {
       set_error("V4L2 client usage event read failed");
       return false;
     }
-    if (event.type != CLIENT_USAGE) continue;
+    if (event.type != usage_event_type_) continue;
     std::uint32_t count = 0;
     std::memcpy(&count, event.u.data, sizeof(count));
     if (count == readers_.load()) continue;
