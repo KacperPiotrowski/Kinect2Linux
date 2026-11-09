@@ -6,6 +6,10 @@ the hardware-enabled broker, the experimental Python client SDK, and a
 library is installed under `/usr/lib/kinect2linux`, not over the system's
 libfreenect2. It packages no Kinect SDK 2.0 (Microsoft) binaries or models.
 
+The binary package also includes the original `libfreenect2` `APACHE20`,
+`GPL2` and `CONTRIB` notices under `/usr/share/doc/kinect2linux/libfreenect2/`.
+This is a necessary packaging improvement, **not** a completed legal review.
+
 The build is intentionally CPU-only. It does **not** install or load kernel
 modules, write udev rules, enable webcam mode, configure audio, open USB,
 start services, or overwrite files in `~/.config`.
