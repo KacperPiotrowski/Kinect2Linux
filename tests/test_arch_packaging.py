@@ -6,6 +6,7 @@ change services, or touch the USB camera.
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
 import subprocess
 import unittest
 
@@ -31,6 +32,13 @@ class AurPackagingTests(unittest.TestCase):
         self.assertIn("patchelf --set-rpath", recipe)
         self.assertNotIn("systemctl --user enable", recipe)
         self.assertNotIn("modprobe ", recipe)
+
+    def test_auxiliary_aur_sources_have_checksums(self):
+        recipe = (AUR / "PKGBUILD").read_text()
+        for basename in ("kinect2-broker-run", "kinect2-broker.service", "README.md"):
+            self.assertIn(f"'{basename}'", recipe)
+            digest = hashlib.sha256((AUR / basename).read_bytes()).hexdigest()
+            self.assertIn(digest, recipe)
 
     def test_unit_is_opt_in_and_runs_packaged_launcher(self):
         unit = (AUR / "kinect2-broker.service").read_text()
