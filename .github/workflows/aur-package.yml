@@ -57,10 +57,8 @@ jobs:
           grep -qx 'usr/bin/kinect2-broker-hw' /tmp/aur-files.txt
           grep -qx 'usr/lib/systemd/user/kinect2-broker.service' /tmp/aur-files.txt
           grep -E '^usr/lib/kinect2linux/libfreenect2.so' /tmp/aur-files.txt
-          grep -q '^usr/lib/python.*site-packages/kinect2_linux/__init__.py
- /tmp/aur-files.txt
-          grep -q '^usr/share/licenses/kinect2linux-git/LICENSE
- /tmp/aur-files.txt
+          grep -F 'site-packages/kinect2_linux/__init__.py' /tmp/aur-files.txt
+          grep -F 'usr/share/licenses/kinect2linux-git/LICENSE' /tmp/aur-files.txt
       - name: Install package inside isolated CI container and validate runtime paths
         run: |
           set -euo pipefail
@@ -69,7 +67,7 @@ jobs:
           [[ -n "$package" ]]
           pacman -U --noconfirm "$package"
           python -c 'from kinect2_linux import BrokerClient, FrameClient'
-          readelf -d /usr/bin/kinect2-broker-hw | grep -F '\$ORIGIN/../lib/kinect2linux'
+          readelf -d /usr/bin/kinect2-broker-hw | grep -F 'ORIGIN/../lib/kinect2linux'
           ldd /usr/bin/kinect2-broker-hw | grep -F '/usr/lib/kinect2linux/libfreenect2'
           test -f /usr/lib/systemd/user/kinect2-broker.service
           test ! -f /etc/systemd/system/kinect2-broker.service
