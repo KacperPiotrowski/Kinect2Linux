@@ -124,6 +124,15 @@ if(KINECT2_ENABLE_HARDWARE)
   install(DIRECTORY "${KINECT2_SO_DIR}/"
     DESTINATION lib/kinect2linux
     FILES_MATCHING PATTERN "libfreenect2.so*")
+  # Each binary package includes a privately patched third-party .so.
+  # Ship original OpenKinect notices alongside it; these are not covered
+  # by Kinect2Linux's own MIT license.
+  install(FILES
+    "${LIBFREENECT2_DIR}/APACHE20"
+    "${LIBFREENECT2_DIR}/GPL2"
+    "${LIBFREENECT2_DIR}/CONTRIB"
+    DESTINATION share/doc/kinect2linux/libfreenect2)
+
   install(PROGRAMS
     "${PROJECT_SOURCE_DIR}/packaging/common/kinect2-broker-run"
     DESTINATION lib/kinect2linux)
