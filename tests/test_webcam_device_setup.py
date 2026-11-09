@@ -39,6 +39,7 @@ class DeviceSetupTests(unittest.TestCase):
             'if [[ "$1" == --help ]]; then\n'
             '  if [[ "${MOCK_CTL_ADD:-0}" == 1 ]]; then echo "  add DEVICE"; '
             'else echo "  set-fps FPS"; fi\n'
+            '  if [[ "${MOCK_CTL_HELP_FAIL:-0}" == 1 ]]; then exit 1; fi\n'
             'elif [[ "$1" == add ]]; then\n'
             '  echo "add:$*" >> "$MOCK_LOG"\n'
             '  ln -s /dev/null "$MOCK_DEV/video11"\n'
@@ -107,6 +108,12 @@ class DeviceSetupTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("add:", self.log.read_text())
         self.assertNotIn("modprobe:", self.log.read_text())
+
+    def test_loaded_dynamic_add_even_if_help_returns_failure(self):
+        self.loaded_ir()
+        result = self.run_script(MOCK_CTL_ADD="1", MOCK_CTL_HELP_FAIL="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("add:", self.log.read_text())
 
     def test_idempotent_when_both_named_devices_exist(self):
         self.loaded_ir()
