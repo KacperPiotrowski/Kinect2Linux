@@ -1,14 +1,8 @@
 #!/usr/bin/env bash
-# Read-only compatibility preflight for broker RGB on v4l2loopback.
-# --installed: inspect the loaded module or the module for this kernel.
-# --loaded: require the running module (used before broker activation).
+# Diagnostic ONLY; a version is never proof of kernel CLIENT_USAGE support.
+# Probe the running /dev/video11 by VIDIOC_SUBSCRIBE_EVENT before activation.
 set -euo pipefail
-
-fail() {
-  printf 'Kinect2 V4L2: %s\n' "$*" >&2
-  exit 2
-}
-
+fail() { printf 'Kinect2 V4L2: %s\n' "$*" >&2; exit 2; }
 case "${1:---loaded}" in
   --loaded|--installed) mode="${1:---loaded}" ;;
   *) fail 'Usage: check-loopback.sh [--loaded|--installed]' ;;
@@ -16,22 +10,19 @@ esac
 
 if [[ -d /sys/module/v4l2loopback ]]; then
   [[ -r /sys/module/v4l2loopback/version ]] ||
-    fail 'Loaded v4l2loopback has no readable version; cannot verify CLIENT_USAGE support.'
+    fail 'v4l2loopback is loaded but its version cannot be read.'
   version=$(cat /sys/module/v4l2loopback/version)
 else
   [[ $mode == --installed ]] ||
-    fail 'v4l2loopback is not loaded; prepare the named virtual RGB camera first.'
-  command -v modinfo >/dev/null 2>&1 || fail 'modinfo unavailable (install kmod).'
+    fail 'v4l2loopback is not loaded; prepare /dev/video11 before probing CLIENT_USAGE.'
+  command -v modinfo >/dev/null 2>&1 ||
+    fail 'modinfo unavailable (install kmod).'
   version=$(modinfo -F version v4l2loopback 2>/dev/null) ||
-    fail 'Cannot inspect v4l2loopback module for this kernel (install compatible DKMS module).'
+    fail 'Cannot inspect v4l2loopback module for this kernel.'
 fi
-
-if [[ ! $version =~ ^([0-9]+)\.([0-9]+)(\.[0-9]+)?([-+].*)?$ ]]; then
-  fail "Unrecognized v4l2loopback version '$version'; cannot confirm CLIENT_USAGE compatibility."
+[[ -n $version ]] || fail 'Module version was empty.'
+printf 'Kinect2 V4L2: version %s. This does NOT prove event compatibility.\n' "$version"
+if [[ $version == 0.12.* ]]; then
+  echo 'Kinect2 V4L2: 0.12.x may support Ubuntu-backported CLIENT_USAGE; stock upstream 0.12.x does not.'
 fi
-major=${BASH_REMATCH[1]}
-minor=${BASH_REMATCH[2]}
-if (( 10#$major == 0 && 10#$minor < 13 )); then
-  fail "v4l2loopback $version is unsupported: broker RGB requires CLIENT_USAGE events (>= 0.13). Ubuntu 24.04 packages 0.12.7; upgrade the module and tools explicitly before enabling V4L2."
-fi
-printf 'Kinect2 V4L2: compatible v4l2loopback version %s (minimum 0.13; event support confirmed at broker start).\n' "$version"
+echo 'Kinect2 V4L2: before activation run the built bin/kinect2-v4l2-probe with /dev/video11 present.'
