@@ -1,0 +1,18 @@
+# Shared, opt-in user unit. Packages must never auto-enable this service.
+[Unit]
+Description=Kinect v2 single USB broker (RGB/IR/Depth)
+Documentation=https://github.com/KacperPiotrowski/Kinect2Linux
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/kinect2linux/kinect2-broker-run
+UMask=0077
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
