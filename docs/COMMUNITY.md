@@ -70,6 +70,10 @@ is required for the core release.
 
 ### Running tests without Kinect
 
+Debian/Ubuntu users: start with the
+[hardware-free setup guide](DEBIAN-OFFLINE-SETUP.md), including package
+names and known limitations reported in issues #40–#45.
+
 On Linux, with build dependencies installed (CMake, Ninja, C++ compiler,
 `nlohmann-json`, Python and requirements in `requirements-test.txt`):
 
