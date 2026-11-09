@@ -26,6 +26,9 @@ class DebianPackagingTests(unittest.TestCase):
         self.assertIn("cmake --install", source)
         cmake = (ROOT / "CMakeLists.txt").read_text()
         self.assertIn("INSTALL_RPATH", cmake)
+        self.assertIn("share/doc/kinect2linux/libfreenect2", cmake)
+        for notice in ("APACHE20", "GPL2", "CONTRIB"):
+            self.assertIn(notice, cmake)
         self.assertIn("packaging/common/kinect2-broker-run", cmake)
         self.assertIn("--root-owner-group", source)
         self.assertNotIn("systemctl --user enable", source)
