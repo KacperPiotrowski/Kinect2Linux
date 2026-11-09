@@ -1,0 +1,69 @@
+name: DEB package smoke build (Ubuntu 24.04)
+
+on:
+  pull_request:
+    paths:
+      - 'packaging/debian/**'
+      - '.github/workflows/deb-package.yml'
+      - 'CMakeLists.txt'
+      - 'core/**'
+      - 'src/**'
+      - 'sdk/python/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ubuntu-deb:
+    # Avoid running arbitrary PR scripts with elevated permissions.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:24.04
+    steps:
+      - name: Install Ubuntu 24.04 build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -eu
+          apt-get update -qq
+          apt-get install -y --no-install-recommends \
+            ca-certificates git build-essential cmake ninja-build pkg-config \
+            dpkg-dev patchelf python3 libusb-1.0-0-dev \
+            libturbojpeg0-dev nlohmann-json3-dev binutils
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate packager scripts
+        run: bash -n packaging/debian/build-deb.sh packaging/debian/kinect2-broker-run
+      - name: Build actual amd64 DEB and run eight C++ tests
+        env:
+          KINECT2_BUILD_JOBS: '2'
+          KINECT2_DEB_MAINTAINER: 'Kinect2Linux CI <ci@example.invalid>'
+        run: bash packaging/debian/build-deb.sh
+      - name: Inspect and install package inside CI container
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -eu
+          set -- dist/kinect2linux_*_amd64.deb
+          test "$#" -eq 1
+          dpkg-deb --info "$1"
+          dpkg-deb --contents "$1" | grep 'kinect2-broker-hw'
+          apt-get install -y --no-install-recommends "./$1"
+          dpkg-query -W -f='${Package} ${Version} ${Status}\n' kinect2linux
+          python3 -c 'from kinect2_linux import BrokerClient; from kinect2_linux.frame_client import FrameClient'
+          /usr/bin/kinect2-broker-hw --help
+          readelf -d /usr/bin/kinect2-broker-hw | grep -F 'ORIGIN/../lib/kinect2linux'
+          ldd /usr/bin/kinect2-broker-hw | tee /tmp/broker-ldd.txt
+          grep -q 'libfreenect2.so' /tmp/broker-ldd.txt
+          ! grep -q 'not found' /tmp/broker-ldd.txt
+          test -f /usr/lib/systemd/user/kinect2-broker.service
+          test ! -e /etc/systemd/system/kinect2-broker.service
+      - name: Verify uninstall (no host service manipulation)
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          dpkg --remove kinect2linux
+          test ! -e /usr/bin/kinect2-broker-hw
