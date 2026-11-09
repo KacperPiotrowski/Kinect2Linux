@@ -25,6 +25,9 @@ add_library(kinect2_hardware_stub STATIC core/libfreenect2_hardware.cpp)
 add_library(kinect2_worker_supervisor STATIC core/worker_process.cpp)
 add_library(kinect2_frame_hub STATIC core/frame_hub.cpp)
 add_library(kinect2_v4l2_rgb STATIC core/v4l2_rgb_output.cpp)
+# The event probe never opens Kinect USB and may run before service activation.
+add_executable(kinect2-v4l2-probe src/kinect_v4l2_probe.cpp)
+target_include_directories(kinect2-v4l2-probe PRIVATE "${PROJECT_SOURCE_DIR}")
 add_library(kinect2_auto_capture STATIC core/auto_capture.cpp)
 foreach(target kinect2_discovery kinect2_session kinect2_hardware_stub
                kinect2_worker_supervisor kinect2_frame_hub kinect2_v4l2_rgb kinect2_auto_capture)
@@ -79,6 +82,10 @@ add_executable(test_frame_hub tests/native/test_frame_hub.cpp)
 target_link_libraries(test_frame_hub PRIVATE kinect2_frame_hub Threads::Threads)
 add_test(NAME frame_hub COMMAND test_frame_hub)
 
+add_executable(test_v4l2_usage_events tests/native/test_v4l2_usage_events.cpp)
+target_include_directories(test_v4l2_usage_events PRIVATE "${PROJECT_SOURCE_DIR}")
+add_test(NAME v4l2_usage_events COMMAND test_v4l2_usage_events)
+
 add_executable(test_v4l2_rgb tests/native/test_v4l2_rgb.cpp)
 target_link_libraries(test_v4l2_rgb PRIVATE kinect2_v4l2_rgb Threads::Threads)
 add_test(NAME v4l2_rgb COMMAND test_v4l2_rgb)
@@ -98,6 +105,6 @@ add_test(NAME worker_process COMMAND test_worker_process "$<TARGET_FILE:kinect2-
 
 # Existing native tests use assert() with meaningful side effects. CMake
 # Release defines NDEBUG, so explicitly keep assertions enabled in test code.
-foreach(test_target test_sensor_backend test_device_session test_sequence_gap_tracker test_frame_hub test_v4l2_rgb test_auto_capture test_usb_disconnect_guard test_worker_process)
+foreach(test_target test_sensor_backend test_device_session test_sequence_gap_tracker test_frame_hub test_v4l2_usage_events test_v4l2_rgb test_auto_capture test_usb_disconnect_guard test_worker_process)
   target_compile_options(${test_target} PRIVATE -UNDEBUG)
 endforeach()
