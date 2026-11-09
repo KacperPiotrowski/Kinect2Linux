@@ -66,7 +66,7 @@ jobs:
             -name 'kinect2linux-git-*.pkg.tar.zst' ! -name 'kinect2linux-git-debug-*' -print -quit)
           [[ -n "$package" ]]
           pacman -U --noconfirm "$package"
-          python -c 'from kinect2_linux import BrokerClient, FrameClient'
+          python -c 'from kinect2_linux import BrokerClient; from kinect2_linux.frame_client import FrameClient'
           readelf -d /usr/bin/kinect2-broker-hw | grep -F 'ORIGIN/../lib/kinect2linux'
           ldd /usr/bin/kinect2-broker-hw | grep -F '/usr/lib/kinect2linux/libfreenect2'
           test -f /usr/lib/systemd/user/kinect2-broker.service
