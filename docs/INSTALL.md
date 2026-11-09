@@ -36,18 +36,29 @@ For a hardware-free build and offline tests, see
 
 For the RGB webcam you also need a v4l2loopback kernel module matching your
 kernel and v4l2loopback-ctl utilities (packages vary with kernel/repository).
-**The broker V4L2 integration requires v4l2loopback >= 0.13 (CLIENT_USAGE).**
-Ubuntu 24.04 currently supplies 0.12.7 through its distribution packages,
-which is **not compatible**; do not enable the RGB webcam integration with
-that version. Check the installed/loaded module without changing it:
+**The broker V4L2 integration requires working CLIENT_USAGE events**, not
+a particular version string. Upstream v4l2loopback >= 0.13 uses the newer
+private event ID. Ubuntu 24.04 backports CLIENT_USAGE to some 0.12.7
+packages, using a legacy event ID; stock upstream 0.12 does not provide
+that event. The broker now tries both IDs and refuses to activate unless
+the kernel actually accepts the subscription.
+
+Inspect the module version without writing anything:
 ~~~bash
 bash webcam/check-loopback.sh --installed
 bash webcam/check-loopback.sh --loaded
 ~~~
-Upgrade the kernel module and utilities explicitly through an appropriate,
-reviewed distribution-compatible method before trying webcam setup. The
-installer does not install or upgrade kernel modules. Incompatible versions
-are rejected **before** virtual-device setup or broker autostart. The Kinect needs working power, USB 3.0 and **normal-user USB permissions**.
+The version check is **advisory only**. After building the broker and setting
+up the RGB virtual device, test the real feature without opening Kinect USB:
+~~~bash
+bin/kinect2-v4l2-probe --probe
+~~~
+This briefly opens /dev/video11 as a V4L2 read-only client and subscribes
+to both supported event IDs. It can trigger an existing on-demand producer,
+so stop the legacy webcam service before probing. Do not infer compatibility
+from a module version alone. The installer never installs or upgrades
+kernel modules. The Kinect needs working power, USB 3.0 and
+**normal-user USB permissions**.
 The installer intentionally does not create generic/insecure udev rules or
 modify your device ACLs. Review your distribution's USB permissions first.
 
@@ -72,10 +83,21 @@ setup is explicitly selected by you:
 sudo bash webcam/install-device.sh
 ~~~
 
-This sets up **kinect2-rgb-device.service**, responsible only for preparing
-the named virtual camera. It refuses to reuse a foreign /dev/video11 and
-preserves /dev/video10. Do not use this installer to fix a conflicting
-virtual camera by force.
+This prepares **both** named virtual cameras and installs the
+`kinect2-rgb-device.service` one-shot unit, without touching Kinect USB.
+When v4l2loopback is not loaded, it creates IR /dev/video10 and RGB
+/dev/video11 together with one `modprobe devices=2 video_nr=10,11`.
+This works with Ubuntu's 0.12.7 even though its `v4l2loopback-ctl` has
+no dynamic `add` command. When the module is **already loaded**, the
+script preserves IR /dev/video10 and adds RGB only if the installed
+`v4l2loopback-ctl` supports `add`. Otherwise it refuses and explains
+manual recovery, rather than leaving a half-configured persistent service.
+
+**Never unload v4l2loopback while applications still use it.** If a
+pre-existing module has only IR and lacks dynamic `add`, close all clients,
+identify any other applications using it, then (only when safe) manually
+run `sudo modprobe -r v4l2loopback` and repeat the device setup. The
+installer never unloads modules or replaces foreign nodes.
 
 ## 3. Opt in to the ONE V4L2-owning broker
 
@@ -98,12 +120,14 @@ bash tools/install_kinect2.sh --activate
 Activation verifies the hardware broker binary, a managed user unit,
 the exact name of /dev/video11, and the old bridge's disabled/stopped
 state. It refuses conflicting configuration and never restarts an already
-active broker, which might be serving other applications. It verifies the
-loaded v4l2loopback version before writing configuration, then writes the
-opt-in KINECT2_BROKER_V4L2=1 systemd drop-in and enables the user broker.
-It checks that the service remains active after startup; if it exits,
-the installer disables autostart and reports a failure rather than claiming
-successful activation.
+active broker, which might be serving other applications. It uses the
+`kinect2-v4l2-probe` capability test **before writing any new drop-in
+or enabling autostart**. This probe supports upstream and Ubuntu-backported
+client usage events. It then writes the opt-in KINECT2_BROKER_V4L2=1
+systemd drop-in and enables the user broker. It checks that the service
+remains active shortly after startup. If it exits, the installer disables
+autostart and removes the drop-in only if it just created that exact file.
+It never overwrites or deletes an unrelated user configuration.
 The user unit starts upon login, **not before login**, and should not
 hold USB while there are no camera clients.
 
@@ -163,8 +187,10 @@ the device service, alter USB ACLs or uninstall compiled artifacts.
 ## Known gaps and contributor opportunities
 
 - Repeat the install from a truly clean clone and test on a second machine.
-- Recheck Ubuntu issues #40–#45 after upgrading v4l2loopback; a compatible
-  module version is necessary but does not guarantee working event support.
+- Recheck Ubuntu issues #40–#45 with the stock Ubuntu 24.04 v4l2loopback
+  first; capability testing (both event IDs), correctly named IR/RGB devices
+  and clean service activation are required. A module upgrade is only a
+  fallback if the actual feature probe fails.
 - Validate USB permissions/udev guidance, kernel-module packaging and recovery
   across Linux distributions; no automatic distro package installation yet.
 - Long-running memory/CPU stability, USB hot-unplug/replug, restart during
