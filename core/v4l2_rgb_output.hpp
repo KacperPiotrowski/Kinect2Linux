@@ -53,6 +53,7 @@ class V4l2RgbOutput final : public FrameSink {
   void set_error(std::string error) noexcept;
   void write_black() noexcept;
 
+  std::uint32_t usage_event_type_ = 0; // selected before worker starts
   int fd_ = -1;  // owned by worker thread after start(), joined before close
   std::atomic<bool> running_{false};
   std::atomic<unsigned> readers_{0};
