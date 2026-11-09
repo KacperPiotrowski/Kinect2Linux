@@ -19,7 +19,7 @@ git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null ||
 revision=$(git -C "$ROOT" rev-list --count HEAD)
 sha=$(git -C "$ROOT" rev-parse --short=8 HEAD)
 version="${KINECT2_DEB_VERSION:-0.0~git${revision}.${sha}-1}"
-dpkg --validate-thing version "$version" >/dev/null 2>&1 ||
+dpkg --validate-version "$version" >/dev/null 2>&1 ||
   die "Invalid Debian version: $version"
 maintainer="${KINECT2_DEB_MAINTAINER:-Kinect2Linux CI <ci@example.invalid>}"
 out="${KINECT2_DEB_OUT:-$ROOT/dist}"
