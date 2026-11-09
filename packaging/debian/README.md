@@ -15,7 +15,7 @@ No Microsoft Kinect SDK 2.0 binaries, model files, kernel drivers or USB device
 rules are included. The builder uses a temporary Git-archive copy of the
 current commit, builds and tests without touching the existing checkout,
 then puts the binary .deb under `dist/`. The build **fetches OpenKinect over
-the network**. It requires a C++23 compiler, git, cmake, ninja, patchelf,
+the network**. It requires a C++23 compiler, git, cmake, ninja,
 dpkg-dev, the TurboJPEG and libusb development packages, and JSON headers.
 
 For Ubuntu 24.04 container smoke testing, use the CI workflow in
@@ -25,7 +25,7 @@ For Ubuntu 24.04 container smoke testing, use the CI workflow in
 sudo apt update
 sudo apt install --no-install-recommends \
   build-essential git ca-certificates cmake ninja-build pkg-config \
-  dpkg-dev patchelf python3 libusb-1.0-0-dev libturbojpeg0-dev \
+  dpkg-dev python3 libusb-1.0-0-dev libturbojpeg0-dev \
   nlohmann-json3-dev
 # From a Git checkout at the branch/commit being tested:
 KINECT2_DEB_MAINTAINER='Your Name <you@example.org>' \
