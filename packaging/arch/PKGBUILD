@@ -21,8 +21,17 @@ conflicts=('kinect2linux')
 source=(
   'kinect2linux::git+https://github.com/KacperPiotrowski/Kinect2Linux.git#branch=main'
   'libfreenect2::git+https://github.com/OpenKinect/libfreenect2.git#commit=fd64c5d9b214df6f6a55b4419357e51083f15d93'
+  'kinect2-broker-run'
+  'kinect2-broker.service'
+  'README.md'
 )
-sha256sums=('SKIP' 'SKIP')
+sha256sums=(
+  'SKIP'
+  'SKIP'
+  '9f01484f53576f1121f2c63b1a1b23bef52724a43477b2fd70fac43619afcd0f'
+  'c543c27d51c66d3c1510777e9d8c41dfdaed733ee933875b6e9ffed9f266f32f'
+  '1b30d67d11f6cfe1dc473699be1b7851ae64cc2da9f536badd235a769ad29774'
+)
 _upstream_cpu='85966b7dd39a1977b6f2f2b3a203f35a0d9f65e0'
 _patched_cpu='14756995f96687336e6614d83f99028cc680c4d5'
 
@@ -82,9 +91,9 @@ package() {
   patchelf --set-rpath '$ORIGIN/../lib/kinect2linux' \
     "${pkgdir}/usr/bin/kinect2-broker-hw"
 
-  install -Dm755 "${_root}/packaging/arch/kinect2-broker-run" \
+  install -Dm755 "${srcdir}/kinect2-broker-run" \
     "${pkgdir}/usr/lib/kinect2linux/kinect2-broker-run"
-  install -Dm644 "${_root}/packaging/arch/kinect2-broker.service" \
+  install -Dm644 "${srcdir}/kinect2-broker.service" \
     "${pkgdir}/usr/lib/systemd/user/kinect2-broker.service"
 
   # Python SDK is entirely separate from the USB-owning broker.
@@ -98,6 +107,6 @@ package() {
 
   install -Dm644 "${_root}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
   install -Dm644 "${_root}/THIRD_PARTY.md" "${pkgdir}/usr/share/doc/${pkgname}/THIRD_PARTY.md"
-  install -Dm644 "${_root}/packaging/arch/README.md" \
+  install -Dm644 "${srcdir}/README.md" \
     "${pkgdir}/usr/share/doc/${pkgname}/AUR.md"
 }
