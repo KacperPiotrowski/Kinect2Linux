@@ -32,7 +32,7 @@ jobs:
           [[ "$SOURCE_BRANCH" =~ ^[a-zA-Z0-9._/-]+$ ]] || exit 2
           useradd -m -s /bin/bash aur-builder
           install -d -m 0755 /tmp/kinect2-aur-test
-          cp packaging/arch/PKGBUILD /tmp/kinect2-aur-test/PKGBUILD
+          cp packaging/arch/{PKGBUILD,kinect2-broker-run,kinect2-broker.service,README.md} /tmp/kinect2-aur-test/
           # Test the proposed branch. The published recipe tracks main.
           sed -i "s|#branch=main|#branch=${SOURCE_BRANCH}|" /tmp/kinect2-aur-test/PKGBUILD
           chown -R aur-builder:aur-builder /tmp/kinect2-aur-test
