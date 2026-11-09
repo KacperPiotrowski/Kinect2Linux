@@ -38,7 +38,7 @@ jobs:
       - name: Trust checked-out workspace in isolated root container
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Validate packager scripts
-        run: bash -n packaging/debian/build-deb.sh packaging/debian/kinect2-broker-run
+        run: bash -n packaging/debian/build-deb.sh packaging/common/kinect2-broker-run
       - name: Build actual amd64 DEB and run eight C++ tests
         env:
           KINECT2_BUILD_JOBS: '2'
