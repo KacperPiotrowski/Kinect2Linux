@@ -7,7 +7,7 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 die() { printf 'Kinect2Linux DEB: %s\n' "$*" >&2; exit 2; }
 
 for cmd in git tar cmake ninja c++ dpkg dpkg-deb dpkg-shlibdeps \
-           patchelf install python3; do
+           install python3; do
   command -v "$cmd" >/dev/null 2>&1 || die "Missing build tool: $cmd"
 done
 
@@ -37,25 +37,17 @@ export KINECT2_BUILD_JOBS="${KINECT2_BUILD_JOBS:-2}"
 bash "$src/tools/bootstrap_libfreenect2_omp.sh"
 cmake -S "$src" -B "$work/broker-build" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=/usr \
   -DKINECT2_ENABLE_HARDWARE=ON \
+  -DKINECT2_PYTHON_INSTALL_DIR=lib/python3/dist-packages \
   -DLIBFREENECT2_DIR="$src/third_party/libfreenect2-omp"
 cmake --build "$work/broker-build" --parallel "$KINECT2_BUILD_JOBS"
 ctest --test-dir "$work/broker-build" --output-on-failure
 
-install -Dm755 "$src/bin/kinect2-broker-hw" "$stage/usr/bin/kinect2-broker-hw"
-install -Dm755 "$src/bin/kinect2-worker" "$stage/usr/bin/kinect2-worker"
-install -d "$stage/usr/lib/kinect2linux"
-cp -a "$src/third_party/libfreenect2-omp/build-omp/lib"/libfreenect2.so* \
-  "$stage/usr/lib/kinect2linux/"
-patchelf --set-rpath '$ORIGIN/../lib/kinect2linux' "$stage/usr/bin/kinect2-broker-hw"
-install -Dm755 "$src/packaging/debian/kinect2-broker-run" \
-  "$stage/usr/lib/kinect2linux/kinect2-broker-run"
-install -Dm644 "$src/packaging/debian/kinect2-broker.service" \
-  "$stage/usr/lib/systemd/user/kinect2-broker.service"
-install -d "$stage/usr/lib/python3/dist-packages"
-cp -a "$src/sdk/python/kinect2_linux" "$stage/usr/lib/python3/dist-packages/"
-find "$stage/usr/lib/python3/dist-packages/kinect2_linux" \
-  -name __pycache__ -type d -prune -exec rm -rf -- '{}' +
+# The single CMake install manifest owns binaries, private lib, SDK and unit.
+# DESTDIR stages files into the temporary package root without touching /usr.
+DESTDIR="$stage" cmake --install "$work/broker-build" --prefix /usr
+
 install -Dm644 "$src/LICENSE" \
   "$stage/usr/share/doc/kinect2linux/copyright"
 install -Dm644 "$src/THIRD_PARTY.md" \
