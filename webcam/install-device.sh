@@ -11,12 +11,18 @@ if [[ ! -x /usr/bin/modprobe && ! -x /usr/sbin/modprobe ]]; then
   echo 'Missing modprobe: install kmod.' >&2
   exit 2
 fi
-if [[ ! -x /usr/bin/systemctl && ! -x /bin/systemctl ]]; then
+if [[ -x /usr/bin/systemctl ]]; then
+  SYSTEMCTL=/usr/bin/systemctl
+elif [[ -x /bin/systemctl ]]; then
+  SYSTEMCTL=/bin/systemctl
+else
   echo 'Missing systemctl: a systemd installation is required.' >&2
   exit 2
 fi
 # Dynamic add tools are not required for the initial dual-device modprobe.
-# A loaded old module will report safe manual recovery steps instead.
+# Validate/create the pair before writing a persistent system unit. A loaded
+# old module without RGB will give safe recovery instructions and exit here.
+bash "$ROOT/device-onboot.sh"
 install -D -o root -g root -m 0755 "$ROOT/device-onboot.sh" /usr/local/libexec/kinect2-rgb-device
 cat > /etc/systemd/system/kinect2-rgb-device.service <<'UNIT'
 [Unit]
@@ -31,8 +37,8 @@ RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
 UNIT
-systemctl daemon-reload
-systemctl enable --now kinect2-rgb-device.service
-systemctl is-active --quiet kinect2-rgb-device.service ||
+"$SYSTEMCTL" daemon-reload
+"$SYSTEMCTL" enable --now kinect2-rgb-device.service
+"$SYSTEMCTL" is-active --quiet kinect2-rgb-device.service ||
   { echo 'Device setup service did not remain active; inspect journalctl -u kinect2-rgb-device.' >&2; exit 2; }
 printf '[OK] Kinect IR and RGB virtual cameras prepared: /dev/video10, /dev/video11\n'
