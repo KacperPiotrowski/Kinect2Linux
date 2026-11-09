@@ -104,6 +104,12 @@ fi
         self.assertFalse((self.home / ".config").exists())
         self.assertFalse(self.log.exists())
 
+    def test_check_warns_about_old_loopback_without_blocking_offline_builds(self):
+        result = self.call("--check", MOCK_LOOPBACK_FAIL="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("WARNING: v4l2loopback 0.12.7 unsupported", result.stdout)
+        self.assertFalse(self.log.exists())
+
     def test_prepare_uses_build_and_tests_without_activation(self):
         for name in ("bootstrap_libfreenect2_omp.sh",
                      "build_broker.sh", "install_broker_user.sh"):
