@@ -33,13 +33,41 @@ preflight() {
   check_user
   local missing=0 command_name camera_name
   log 'Read-only prerequisite check'
-  for command_name in git g++ cmake ninja pkg-config systemctl; do
-    if command -v "$command_name" >/dev/null 2>&1; then
-      log "OK: $command_name"
-    else
+  for command_name in git g++ cmake ninja pkg-config systemctl python3; do
+    if ! command -v "$command_name" >/dev/null 2>&1; then
       log "MISSING: $command_name"; missing=1
+    elif [[ $command_name == cmake || $command_name == ninja ]] &&
+         ! "$command_name" --version >/dev/null 2>&1; then
+      log "BROKEN: $command_name ($(command -v "$command_name") fails --version; check PATH/stale pip shims)"
+      missing=1
+    else
+      log "OK: $command_name"
     fi
   done
+  if command -v g++ >/dev/null 2>&1; then
+    if ! printf 'int main() { return 0; }\n' |
+         g++ -std=c++23 -x c++ -fsyntax-only - >/dev/null 2>&1; then
+      log 'BROKEN: g++ cannot compile a basic C++23 source'; missing=1
+    fi
+    local header package
+    for header in turbojpeg.h nlohmann/json.hpp libusb-1.0/libusb.h; do
+      case "$header" in
+        turbojpeg.h) package=libturbojpeg0-dev ;;
+        nlohmann/json.hpp) package=nlohmann-json3-dev ;;
+        libusb-1.0/libusb.h) package=libusb-1.0-0-dev ;;
+      esac
+      if ! printf '#include <%s>\n' "$header" |
+           g++ -std=c++23 -x c++ -fsyntax-only - >/dev/null 2>&1; then
+        log "MISSING: C++ header <$header> (Debian/Ubuntu: $package)"
+        missing=1
+      fi
+    done
+  fi
+  if command -v pkg-config >/dev/null 2>&1 &&
+     ! pkg-config --exists libusb-1.0; then
+    log 'MISSING: libusb-1.0 pkg-config metadata (Debian/Ubuntu: libusb-1.0-0-dev)'
+    missing=1
+  fi
   if command -v v4l2loopback-ctl >/dev/null 2>&1; then
     log 'OK: v4l2loopback-ctl'
   else
@@ -100,6 +128,9 @@ activate() {
     fail 'Legacy RGB autostart enabled. Disable it manually first.'
   [[ $(service_state is-active "$BROKER") != active ]] ||
     fail 'Broker already active; refusing to restart existing client streams.'
+  # Refuse an old/incompatible loopback driver before enabling autostart.
+  bash "$ROOT/webcam/check-loopback.sh" --loaded ||
+    fail 'RGB V4L2 incompatible; broker was not enabled or started.'
   [[ ! -L $(dirname -- "$DROPIN") ]] ||
     fail 'Refusing symlinked broker drop-in directory.'
   [[ ! -L $DROPIN ]] || fail "Refusing symlinked configuration: $DROPIN"
@@ -111,7 +142,16 @@ activate() {
      set -C; printf '[Service]\nEnvironment=KINECT2_BROKER_V4L2=1\n' > "$DROPIN")
   fi
   systemctl --user daemon-reload
-  systemctl --user enable --now "$BROKER"
+  if ! systemctl --user enable --now "$BROKER"; then
+    systemctl --user disable --now "$BROKER" >/dev/null 2>&1 || true
+    fail 'Broker failed to start; autostart disabled. Review journalctl --user -u kinect2-broker.'
+  fi
+  # systemd can accept --now just before the service exits/restart-loops.
+  sleep 2
+  if [[ $(service_state is-active "$BROKER") != active ]]; then
+    systemctl --user disable --now "$BROKER" >/dev/null 2>&1 || true
+    fail 'Broker did not remain active; autostart disabled. Review journalctl --user -u kinect2-broker.'
+  fi
   log 'Broker V4L2 activated. Verify Firefox and automatic USB idle release.'
   log 'Rollback instructions: docs/INSTALL.md.'
 }
