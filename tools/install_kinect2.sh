@@ -33,17 +33,53 @@ preflight() {
   check_user
   local missing=0 command_name camera_name
   log 'Read-only prerequisite check'
-  for command_name in git g++ cmake ninja pkg-config systemctl; do
-    if command -v "$command_name" >/dev/null 2>&1; then
-      log "OK: $command_name"
-    else
+  for command_name in git g++ cmake ninja pkg-config systemctl python3; do
+    if ! command -v "$command_name" >/dev/null 2>&1; then
       log "MISSING: $command_name"; missing=1
+    elif [[ $command_name == cmake || $command_name == ninja ]] &&
+         ! "$command_name" --version >/dev/null 2>&1; then
+      log "BROKEN: $command_name ($(command -v "$command_name") fails --version; check PATH/stale pip shims)"
+      missing=1
+    else
+      log "OK: $command_name"
     fi
   done
+  if command -v g++ >/dev/null 2>&1; then
+    if ! printf 'int main() { return 0; }\n' |
+         g++ -std=c++23 -x c++ -fsyntax-only - >/dev/null 2>&1; then
+      log 'BROKEN: g++ cannot compile a basic C++23 source'; missing=1
+    fi
+    local header package
+    for header in turbojpeg.h nlohmann/json.hpp libusb-1.0/libusb.h; do
+      case "$header" in
+        turbojpeg.h) package=libturbojpeg0-dev ;;
+        nlohmann/json.hpp) package=nlohmann-json3-dev ;;
+        libusb-1.0/libusb.h) package=libusb-1.0-0-dev ;;
+      esac
+      if ! printf '#include <%s>\n' "$header" |
+           g++ -std=c++23 -x c++ -fsyntax-only - >/dev/null 2>&1; then
+        log "MISSING: C++ header <$header> (Debian/Ubuntu: $package)"
+        missing=1
+      fi
+    done
+  fi
+  if command -v pkg-config >/dev/null 2>&1 &&
+     ! pkg-config --exists libusb-1.0; then
+    log 'MISSING: libusb-1.0 pkg-config metadata (Debian/Ubuntu: libusb-1.0-0-dev)'
+    missing=1
+  fi
   if command -v v4l2loopback-ctl >/dev/null 2>&1; then
     log 'OK: v4l2loopback-ctl'
   else
     log 'INFO: v4l2loopback tools required for a new /dev/video11.'
+  fi
+  # Diagnostic only. We do not open a virtual camera during --check because
+  # probing readers can wake an already running producer. Activation probes.
+  local v4l2_report
+  if v4l2_report=$(bash "$ROOT/webcam/check-loopback.sh" --installed 2>&1); then
+    log "INFO: $v4l2_report"
+  else
+    log "WARNING: $v4l2_report"
   fi
   if [[ -c $DEVICE ]]; then
     camera_name=$(cat "$NAME_FILE" 2>/dev/null || true)
@@ -70,6 +106,7 @@ prepare() {
   bash "$ROOT/tools/build_broker.sh" --with-hardware
   "$ROOT/bin/test_auto_capture"
   "$ROOT/bin/test_v4l2_rgb"
+  "$ROOT/bin/test_v4l2_usage_events"
   bash "$ROOT/tools/install_broker_user.sh"
   log 'Prepared, without autostart. Review device setup, then --activate.'
 }
@@ -100,18 +137,44 @@ activate() {
     fail 'Legacy RGB autostart enabled. Disable it manually first.'
   [[ $(service_state is-active "$BROKER") != active ]] ||
     fail 'Broker already active; refusing to restart existing client streams.'
+  # Capability probe uses VIDIOC_SUBSCRIBE_EVENT on /dev/video11 without
+  # opening USB or changing any service. Version alone cannot decide support
+  # because Ubuntu backports client usage to some 0.12.x kernels.
+  [[ -x $ROOT/bin/kinect2-v4l2-probe ]] ||
+    fail 'Missing V4L2 capability probe; rebuild with --prepare.'
+  "$ROOT/bin/kinect2-v4l2-probe" --probe ||
+    fail 'RGB V4L2 CLIENT_USAGE events unavailable; broker was not enabled or started.'
   [[ ! -L $(dirname -- "$DROPIN") ]] ||
     fail 'Refusing symlinked broker drop-in directory.'
   [[ ! -L $DROPIN ]] || fail "Refusing symlinked configuration: $DROPIN"
+  local created_dropin=0
   if [[ -e $DROPIN ]]; then
     cmp -s "$DROPIN" <(printf '[Service]\nEnvironment=KINECT2_BROKER_V4L2=1\n') ||
       fail "Refusing to overwrite different configuration: $DROPIN"
   else
     (umask 077; mkdir -p "$(dirname -- "$DROPIN")";
      set -C; printf '[Service]\nEnvironment=KINECT2_BROKER_V4L2=1\n' > "$DROPIN")
+    created_dropin=1
   fi
+  rollback_activation() {
+    systemctl --user disable --now "$BROKER" >/dev/null 2>&1 || true
+    if (( created_dropin )) &&
+       cmp -s "$DROPIN" <(printf '[Service]\nEnvironment=KINECT2_BROKER_V4L2=1\n'); then
+      rm -- "$DROPIN"
+    fi
+    systemctl --user daemon-reload >/dev/null 2>&1 || true
+  }
   systemctl --user daemon-reload
-  systemctl --user enable --now "$BROKER"
+  if ! systemctl --user enable --now "$BROKER"; then
+    rollback_activation
+    fail 'Broker failed to start; autostart disabled and newly created V4L2 configuration rolled back. Review journalctl --user -u kinect2-broker.'
+  fi
+  # systemd can accept --now just before the service exits/restart-loops.
+  sleep 2
+  if [[ $(service_state is-active "$BROKER") != active ]]; then
+    rollback_activation
+    fail 'Broker did not remain active; autostart disabled and newly created V4L2 configuration rolled back. Review journalctl --user -u kinect2-broker.'
+  fi
   log 'Broker V4L2 activated. Verify Firefox and automatic USB idle release.'
   log 'Rollback instructions: docs/INSTALL.md.'
 }

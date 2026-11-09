@@ -423,9 +423,7 @@ int main(int argc, char** argv) {
     v4l2_rgb = std::make_unique<kinect2::V4l2RgbOutput>();
     if (!v4l2_rgb->start()) {
       std::cerr << "Cannot start in-process RGB V4L2 output: "
-                << v4l2_rgb->last_error() << '\n'
-                << "Stop the legacy kinect2-rgb-webcam.service before enabling "
-                   "the broker's V4L2 mode.\n";
+                << v4l2_rgb->last_error() << '\n';
       ::close(server);
       ::unlink(path.c_str());
       return 2;

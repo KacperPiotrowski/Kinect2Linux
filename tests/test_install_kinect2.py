@@ -30,14 +30,35 @@ class InstallerTests(unittest.TestCase):
             f"NAME_FILE={self.sysname}",
         )
         self.installer = self.repo / "tools/install_kinect2.sh"
+        # Offline tests never depend on the host's build packages or V4L2 module.
+        code = code.replace("sleep 2", "sleep 0")
         self.installer.write_text(code)
+        webcam = self.repo / "webcam"
+        webcam.mkdir()
+        (webcam / "check-loopback.sh").write_text(
+            "#!/bin/sh\n"
+            'if [ "${MOCK_LOOPBACK_FAIL:-0}" = 1 ]; then\n'
+            '  echo "v4l2loopback unavailable" >&2; exit 2\n'
+            "fi\n"
+        )
+        for name in ("cmake", "ninja", "pkg-config", "g++"):
+            tool = self.mockbin / name
+            tool.write_text("#!/bin/sh\nexit 0\n")
+            tool.chmod(0o755)
         ctl = self.mockbin / "systemctl"
         ctl.write_text("""#!/usr/bin/env bash
 if [[ "$1" == --user && "$2" == is-active ]]; then
   if [[ "$3" == kinect2-rgb-webcam.service ]]; then
     echo "${MOCK_LEGACY_ACTIVE:-inactive}"
   else
-    echo "${MOCK_BROKER_ACTIVE:-inactive}"
+    if [[ "${MOCK_BROKER_DIES:-0}" == 1 ]]; then
+      echo inactive
+    elif [[ -f "$MOCK_CALL_LOG" ]] &&
+         grep -q '^--user enable --now kinect2-broker.service$' "$MOCK_CALL_LOG"; then
+      echo active
+    else
+      echo "${MOCK_BROKER_ACTIVE:-inactive}"
+    fi
   fi
 elif [[ "$1" == --user && "$2" == show-environment ]]; then
   [[ "${MOCK_USER_BUS_FAIL:-0}" != 1 ]]
@@ -72,6 +93,15 @@ fi
         launcher.parent.mkdir(parents=True, exist_ok=True)
         launcher.symlink_to(self.repo / "tools/run_broker_service.sh")
         (self.repo / "tools/run_broker_service.sh").write_text("#!/bin/sh\n")
+        probe = self.repo / "bin/kinect2-v4l2-probe"
+        probe.write_text(
+            "#!/bin/sh\n"
+            'if [ "${MOCK_PROBE_FAIL:-0}" = 1 ]; then\n'
+            '  echo "CLIENT_USAGE unsupported" >&2; exit 2\n'
+            "fi\n"
+            'echo "OK: CLIENT_USAGE upstream or Ubuntu legacy event"\n'
+        )
+        probe.chmod(0o755)
         binpath = self.repo / "bin/kinect2-broker-hw"
         binpath.write_text("#!/bin/sh\nexit 0\n")
         binpath.chmod(0o755)
@@ -83,13 +113,19 @@ fi
         self.assertFalse((self.home / ".config").exists())
         self.assertFalse(self.log.exists())
 
+    def test_check_warns_about_old_loopback_without_blocking_offline_builds(self):
+        result = self.call("--check", MOCK_LOOPBACK_FAIL="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("WARNING: v4l2loopback unavailable", result.stdout)
+        self.assertFalse(self.log.exists())
+
     def test_prepare_uses_build_and_tests_without_activation(self):
         for name in ("bootstrap_libfreenect2_omp.sh",
                      "build_broker.sh", "install_broker_user.sh"):
             (self.repo / "tools" / name).write_text(
                 f'#!/usr/bin/env bash\necho "{name}:$*" >> "$MOCK_CALL_LOG"\n'
             )
-        for name in ("test_auto_capture", "test_v4l2_rgb"):
+        for name in ("test_auto_capture", "test_v4l2_rgb", "test_v4l2_usage_events"):
             exe = self.repo / "bin" / name
             exe.write_text(f'#!/bin/sh\necho "{name}" >> "$MOCK_CALL_LOG"\n')
             exe.chmod(0o755)
@@ -98,7 +134,7 @@ fi
         self.assertEqual(self.log.read_text().splitlines(), [
             "bootstrap_libfreenect2_omp.sh:",
             "build_broker.sh:--with-hardware",
-            "test_auto_capture", "test_v4l2_rgb",
+            "test_auto_capture", "test_v4l2_rgb", "test_v4l2_usage_events",
             "install_broker_user.sh:",
         ])
 
@@ -154,6 +190,39 @@ fi
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("ExecStart", result.stderr)
         self.assertFalse(self.log.exists())
+
+    def test_check_rejects_stale_cmake_launcher(self):
+        cmake = self.mockbin / "cmake"
+        cmake.write_text("#!/bin/sh\nexit 1\n")
+        result = self.call("--check")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("BROKEN: cmake", result.stdout)
+        self.assertFalse(self.log.exists())
+
+    def test_activate_refuses_missing_client_usage_before_config_change(self):
+        self.managed()
+        result = self.call("--activate", MOCK_PROBE_FAIL="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("CLIENT_USAGE events unavailable", result.stderr)
+        self.assertFalse((self.home / ".config/systemd/user/"
+                          "kinect2-broker.service.d/50-v4l2-experimental.conf").exists())
+        self.assertFalse(self.log.exists())
+
+    def test_activate_detects_failed_service_and_disables_autostart(self):
+        self.managed()
+        result = self.call("--activate", MOCK_BROKER_DIES="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("did not remain active", result.stderr)
+        self.assertIn("--user disable --now kinect2-broker.service",
+                      self.log.read_text())
+        drop = self.home / ".config/systemd/user/kinect2-broker.service.d/50-v4l2-experimental.conf"
+        self.assertFalse(drop.exists(), "Newly created activation drop-in must roll back")
+
+    def test_ubuntu_012_legacy_event_may_activate_when_probe_succeeds(self):
+        self.managed()
+        result = self.call("--activate", MOCK_LOOPBACK_FAIL="0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("activated", result.stdout)
 
     def test_activate_requires_explicit_opt_in(self):
         self.managed()
