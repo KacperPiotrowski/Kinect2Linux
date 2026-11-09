@@ -21,6 +21,19 @@ constexpr std::uint32_t HEIGHT = 1080;
 constexpr std::size_t RAW_SIZE = std::size_t(WIDTH) * HEIGHT * 4;
 constexpr std::size_t OUT_SIZE = std::size_t(WIDTH) * HEIGHT * 2;
 // Select the actual driver event ID at runtime (upstream or Ubuntu backport).
+std::string loopback_version() {
+  char buffer[80]{};
+  const int fd = ::open("/sys/module/v4l2loopback/version",
+                        O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+  if (fd < 0) return "unknown";
+  const auto n = ::read(fd, buffer, sizeof(buffer) - 1);
+  ::close(fd);
+  if (n <= 0) return "unknown";
+  std::string result(buffer, static_cast<std::size_t>(n));
+  while (!result.empty() && (result.back() == '\\n' || result.back() == '\\r'))
+    result.pop_back();
+  return result.empty() ? "unknown" : result;
+}
 
 std::uint8_t clamp8(int x) noexcept {
   return static_cast<std::uint8_t>(x < 0 ? 0 : (x > 255 ? 255 : x));
@@ -126,7 +139,8 @@ bool V4l2RgbOutput::start(const std::string& path) noexcept {
   const auto event = subscribe_usage_event(fd);
   if (!event.type) {
     const std::string error =
-        "v4l2loopback client-usage event unsupported on /dev/video11 "
+        "v4l2loopback " + loopback_version() +
+        " client-usage event unsupported on /dev/video11 "
         "(upstream ioctl: " + std::string(std::strerror(event.upstream_error)) +
         ", Ubuntu backport ioctl: " +
         std::string(std::strerror(event.ubuntu_error)) +
