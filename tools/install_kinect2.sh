@@ -73,6 +73,13 @@ preflight() {
   else
     log 'INFO: v4l2loopback tools required for a new /dev/video11.'
   fi
+  # Optional webcam path: warn during --check but don't block offline builds.
+  local v4l2_report
+  if v4l2_report=$(bash "$ROOT/webcam/check-loopback.sh" --installed 2>&1); then
+    log "OK: $v4l2_report"
+  else
+    log "WARNING: $v4l2_report (RGB V4L2 activation will refuse this module)"
+  fi
   if [[ -c $DEVICE ]]; then
     camera_name=$(cat "$NAME_FILE" 2>/dev/null || true)
     if [[ $camera_name == 'Kinect v2 RGB' ]]; then
