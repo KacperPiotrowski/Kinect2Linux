@@ -20,7 +20,7 @@ From the repository root:
 
 ```bash
 cd packaging/arch
-bash -n PKGBUILD kinect2-broker-run
+bash -n PKGBUILD ../../packaging/common/kinect2-broker-run
 makepkg --printsrcinfo > .SRCINFO
 makepkg --cleanbuild --syncdeps --check
 ```
@@ -33,6 +33,8 @@ The recipe requires network access to fetch two Git sources (Kinect2Linux
 and pinned OpenKinect/libfreenect2), so offline compilation from an empty
 source cache is not supported. `.SRCINFO` is generated locally before AUR
 publication; do not hand-write guessed metadata.
+
+The installed package carries OpenKinect's `APACHE20`, `GPL2`, and `CONTRIB` documentation. The source-availability and full third-party license audit still require human review before publication.
 
 The package is a new, alternate way to install the project; it does not
 migrate existing manually built installations. Inspect and reconcile any
