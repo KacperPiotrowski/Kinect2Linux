@@ -54,6 +54,7 @@ if(KINECT2_ENABLE_HARDWARE)
   set_target_properties(kinect2_local_freenect2 PROPERTIES
     IMPORTED_LOCATION "${KINECT2_SO_DIR}/libfreenect2.so")
   add_executable(kinect2-broker-hw src/kinect_broker.cpp)
+  target_compile_definitions(kinect2-broker-hw PRIVATE KINECT2_HARDWARE_BROKER=1)
   target_link_libraries(kinect2-broker-hw PRIVATE kinect2_discovery
     kinect2_session kinect2_hardware_native kinect2_worker_supervisor
     kinect2_frame_hub kinect2_auto_capture kinect2_v4l2_rgb
@@ -101,3 +102,45 @@ add_test(NAME worker_process COMMAND test_worker_process "$<TARGET_FILE:kinect2-
 foreach(test_target test_sensor_backend test_device_session test_sequence_gap_tracker test_frame_hub test_v4l2_rgb test_auto_capture test_usb_disconnect_guard test_worker_process)
   target_compile_options(${test_target} PRIVATE -UNDEBUG)
 endforeach()
+
+# Install only from an explicit hardware-enabled package build. This is the
+# single, distro-neutral filesystem layout shared by AUR and DEB.
+# No install-time hook enables services, touches USB or loads kernel modules.
+if(KINECT2_ENABLE_HARDWARE)
+  set(KINECT2_PYTHON_INSTALL_DIR "" CACHE STRING
+      "Relative Python SDK location (Arch: lib/pythonX.Y/site-packages; Debian: lib/python3/dist-packages)")
+  if(NOT KINECT2_PYTHON_INSTALL_DIR MATCHES "^lib/(python[0-9.]+/site-packages|python3/dist-packages)$")
+    message(FATAL_ERROR
+      "Set KINECT2_PYTHON_INSTALL_DIR to a supported relative site/dist-packages directory")
+  endif()
+
+  # Fixed private library path deliberately avoids system libfreenect2.
+  # The loader discovers it relative to /usr/bin/kinect2-broker-hw.
+  set_target_properties(kinect2-broker-hw PROPERTIES
+    INSTALL_RPATH "\$ORIGIN/../lib/kinect2linux")
+
+  install(TARGETS kinect2-broker-hw kinect2-worker RUNTIME DESTINATION bin)
+  # Copy the SONAME symlink chain as well as the real shared library.
+  install(DIRECTORY "${KINECT2_SO_DIR}/"
+    DESTINATION lib/kinect2linux
+    FILES_MATCHING PATTERN "libfreenect2.so*")
+  # Each binary package includes a privately patched third-party .so.
+  # Ship original OpenKinect notices alongside it; these are not covered
+  # by Kinect2Linux's own MIT license.
+  install(FILES
+    "${LIBFREENECT2_DIR}/APACHE20"
+    "${LIBFREENECT2_DIR}/GPL2"
+    "${LIBFREENECT2_DIR}/CONTRIB"
+    DESTINATION share/doc/kinect2linux/libfreenect2)
+
+  install(PROGRAMS
+    "${PROJECT_SOURCE_DIR}/packaging/common/kinect2-broker-run"
+    DESTINATION lib/kinect2linux)
+  install(FILES
+    "${PROJECT_SOURCE_DIR}/packaging/common/kinect2-broker.service"
+    DESTINATION lib/systemd/user)
+  install(DIRECTORY "${PROJECT_SOURCE_DIR}/sdk/python/kinect2_linux"
+    DESTINATION "${KINECT2_PYTHON_INSTALL_DIR}"
+    PATTERN "__pycache__" EXCLUDE
+    PATTERN "*.pyc" EXCLUDE)
+endif()
