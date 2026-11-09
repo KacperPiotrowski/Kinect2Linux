@@ -1,8 +1,9 @@
-# Kinect2-Linux — guided installer (experimental, Arch Linux)
+# Kinect2-Linux — guided installer (experimental Linux)
 
 **Status:** first installer prototype; hardware-smoke-tested broker on one Arch
-Linux/KDE machine, **not** a general-purpose 1.0 installer. Other distros and
-clean installs still need testing. Run commands from the project root, as your
+Linux/KDE machine, **not** a general-purpose 1.0 installer. Ubuntu 24.04.5
+community testing reported issues #40–#45; a clean end-to-end Ubuntu installation
+is not yet validated. Run commands from the project root, as your
 normal user unless explicitly noted. Audio ALSA remains separate. No MediaPipe
 or face recognition is required.
 
@@ -22,9 +23,31 @@ sudo pacman -S --needed git gcc cmake ninja pkgconf libusb libjpeg-turbo nlohman
 ~~~
 
 This is a **manual example**, not a command the installer runs.
+
+For Ubuntu 24.04, install build dependencies manually:
+~~~bash
+sudo apt install git build-essential cmake ninja-build pkg-config python3 \
+  libusb-1.0-0-dev libturbojpeg0-dev nlohmann-json3-dev
+~~~
+The preflight checks whether CMake/Ninja execute, the compiler supports a
+basic C++23 source, and the required development headers are available.
+For a hardware-free build and offline tests, see
+[DEBIAN-OFFLINE-SETUP.md](DEBIAN-OFFLINE-SETUP.md).
+
 For the RGB webcam you also need a v4l2loopback kernel module matching your
 kernel and v4l2loopback-ctl utilities (packages vary with kernel/repository).
-The Kinect needs working power, USB 3.0 and **normal-user USB permissions**.
+**The broker V4L2 integration requires v4l2loopback >= 0.13 (CLIENT_USAGE).**
+Ubuntu 24.04 currently supplies 0.12.7 through its distribution packages,
+which is **not compatible**; do not enable the RGB webcam integration with
+that version. Check the installed/loaded module without changing it:
+~~~bash
+bash webcam/check-loopback.sh --installed
+bash webcam/check-loopback.sh --loaded
+~~~
+Upgrade the kernel module and utilities explicitly through an appropriate,
+reviewed distribution-compatible method before trying webcam setup. The
+installer does not install or upgrade kernel modules. Incompatible versions
+are rejected **before** virtual-device setup or broker autostart. The Kinect needs working power, USB 3.0 and **normal-user USB permissions**.
 The installer intentionally does not create generic/insecure udev rules or
 modify your device ACLs. Review your distribution's USB permissions first.
 
@@ -75,8 +98,12 @@ bash tools/install_kinect2.sh --activate
 Activation verifies the hardware broker binary, a managed user unit,
 the exact name of /dev/video11, and the old bridge's disabled/stopped
 state. It refuses conflicting configuration and never restarts an already
-active broker, which might be serving other applications. It writes the
+active broker, which might be serving other applications. It verifies the
+loaded v4l2loopback version before writing configuration, then writes the
 opt-in KINECT2_BROKER_V4L2=1 systemd drop-in and enables the user broker.
+It checks that the service remains active after startup; if it exits,
+the installer disables autostart and reports a failure rather than claiming
+successful activation.
 The user unit starts upon login, **not before login**, and should not
 hold USB while there are no camera clients.
 
@@ -136,6 +163,8 @@ the device service, alter USB ACLs or uninstall compiled artifacts.
 ## Known gaps and contributor opportunities
 
 - Repeat the install from a truly clean clone and test on a second machine.
+- Recheck Ubuntu issues #40–#45 after upgrading v4l2loopback; a compatible
+  module version is necessary but does not guarantee working event support.
 - Validate USB permissions/udev guidance, kernel-module packaging and recovery
   across Linux distributions; no automatic distro package installation yet.
 - Long-running memory/CPU stability, USB hot-unplug/replug, restart during
