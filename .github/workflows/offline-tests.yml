@@ -51,3 +51,41 @@ jobs:
         run: bash -n kinect2 face3d webcam/*.sh tools/build_broker.sh tools/libfreenect2_path.sh tools/run_broker_service.sh tools/install_broker_user.sh tools/install_kinect2.sh
       - name: Validate public tree
         run: python tools/check_public_tree.py
+
+  vulkan-mask-reference:
+    name: Vulkan mask parity (Mesa lavapipe)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Vulkan software ICD and shader build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libvulkan-dev mesa-vulkan-drivers glslang-tools spirv-tools g++
+      - name: Compile and validate independent SPIR-V shader
+        run: |
+          mkdir -p /tmp/kinect2-vulkan-mask
+          glslangValidator -V --target-env vulkan1.0 -S comp \
+            -o /tmp/kinect2-vulkan-mask/tile_mask.spv \
+            research/body-tracking/vulkan-tile-mask/tile_mask.comp
+          spirv-val --target-env vulkan1.0 /tmp/kinect2-vulkan-mask/tile_mask.spv
+      - name: Build standalone Vulkan runner
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror \
+            research/body-tracking/vulkan-tile-mask/vulkan_tile_mask_runner.cpp \
+            -lvulkan -o /tmp/kinect2-vulkan-mask/run
+      - name: Compare six Vulkan results with Python CPU reference
+        env:
+          KINECT2_VULKAN_RUNNER: /tmp/kinect2-vulkan-mask/run
+          KINECT2_VULKAN_SHADER: /tmp/kinect2-vulkan-mask/tile_mask.spv
+        run: |
+          LVP_ICD="$(find /usr/share/vulkan/icd.d -maxdepth 1 -name 'lvp_icd*.json' -print -quit)"
+          if [ -z "$LVP_ICD" ]; then
+            echo "Mesa lavapipe Vulkan ICD not installed" >&2
+            exit 1
+          fi
+          export VK_ICD_FILENAMES="$LVP_ICD"
+          python3 -m unittest discover -s research/body-tracking/vulkan-tile-mask -p 'test_*.py' -v

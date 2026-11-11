@@ -1,0 +1,39 @@
+#version 450
+
+// Experimental Kinect2Linux mask-reduction compute stage.
+// The input is a tightly packed little-endian 512x424 R16_UINT image
+// reinterpreted as uint32 words (two adjacent pixels per word).
+// Each output contains the OR of the low three bits of 16 even-coordinate
+// samples in one 8x8 source-pixel region. No atomics or unstable ordering.
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, set = 0, binding = 0) readonly buffer Source {
+    uint pixel_pairs[];
+} source_data;
+
+layout(std430, set = 0, binding = 1) writeonly buffer TileMasks {
+    uint masks[];
+} output_data;
+
+void main() {
+    uint tile_id = gl_GlobalInvocationID.x; // y*64 + x
+    if (tile_id >= 3392u) {
+        return;
+    }
+
+    uint tile_x = tile_id % 64u;
+    uint tile_y = tile_id / 64u;
+    uint bits = 0u;
+
+    for (uint dy = 0u; dy < 4u; ++dy) {
+        uint source_y = 8u * tile_y + 2u * dy;
+        for (uint dx = 0u; dx < 4u; ++dx) {
+            uint source_x = 8u * tile_x + 2u * dx;
+            uint source_pixel = source_y * 512u + source_x;
+            // source_x is even: the R16_UINT value occupies low 16 bits.
+            uint packed_word = source_data.pixel_pairs[source_pixel / 2u];
+            bits |= packed_word & 7u;
+        }
+    }
+    output_data.masks[tile_id] = bits;
+}
